@@ -1,5 +1,5 @@
 # This is repo contains custom Addons for Home Assistant
-These are curdely developed and tested and could probably use some work. If these are useful for you, please feel free to contribute.
+These are crudely developed and tested and could probably use some work. If these are useful for you, please feel free to contribute.
 
 
 ## Installation
