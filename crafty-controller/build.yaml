@@ -1,2 +1,2 @@
 build_from:
-  amd64: "registry.gitlab.com/crafty-controller/crafty-4:latest"
+  amd64: "craftycontrol/crafty-4:latest"
