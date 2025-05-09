@@ -3,9 +3,7 @@ name: Crafty Controller
 version: "1.0.0"
 slug: crafty_controller
 description: A Home Assistant add-on for Crafty Controller, a game server management panel.
-arch:
-  - amd64
-  - arm64
+
 startup: services
 boot: auto
 
