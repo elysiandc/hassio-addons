@@ -1,4 +1,5 @@
 build_from:
+  "ghcr.io/hassio-addons/base:ubuntu"
   #amd64: "arcadiatechnology/crafty-4:latest"
   #amd64: "ghcr.io/home-assistant/amd64-base-ubuntu:latest"
-  amd64: "ghcr.io/hassio-addons/base:ubuntu"
+  #amd64: "ghcr.io/hassio-addons/base:ubuntu"
