@@ -26,7 +26,7 @@ RUN apk add --no-cache \
     openjdk-11-jre-headless \
     openjdk-17-jre-headless \
     openjdk-21-jre-headless \
-    tzdata \
+    tzdata
 
 
 # Install Crafty
@@ -84,7 +84,7 @@ LABEL \
     org.opencontainers.image.vendor="Arcadia Technology, LLC." \
     org.opencontainers.image.licenses="GPL-3.0" \
     io.hass.version="VERSION" \
-    io.hass.type="addon" \
+    io.hass.type="addon"
 
 
 #RUN chmod +x crafty.sh

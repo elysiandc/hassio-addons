@@ -1,2 +1,3 @@
 build_from:
-  amd64: "craftycontrol/crafty-4:latest"
+  amd64: "arcadiatechnology/crafty-4:latest"
+  arm64: "arcadiatechnology/crafty-4:latest"

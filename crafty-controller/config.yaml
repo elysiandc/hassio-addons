@@ -5,6 +5,7 @@ slug: crafty-controller
 description: A Home Assistant add-on for Crafty Controller, a game server management panel.
 arch:
   - amd64
+  - arm64
 startup: services
 boot: auto
 
