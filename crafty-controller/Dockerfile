@@ -3,11 +3,12 @@
 ARG BUILD_FROM
 FROM $BUILD_FROM
 
-ENV LANG C.UTF-8
+ENV CRAFTY_DIR=/crafty
+ENV CRAFTY_USER=crafty
+ENV CRAFTY_RELEASE_URL="https://api.github.com/repos/crafty-controller/crafty/releases/latest"
 
 # Install dependencies
-RUN apk add --no-cache \
-    docker \
+RUN apt-get update && apt-get -y --no-install-recommends install \
     bash \
     curl \
     sudo \
@@ -26,16 +27,25 @@ RUN apk add --no-cache \
     openjdk-11-jre-headless \
     openjdk-17-jre-headless \
     openjdk-21-jre-headless \
-    tzdata
+    && apt-get autoremove \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
+# Create user and working directory
+RUN id -u $CRAFTY_USER >/dev/null 2>&1 || useradd -g root -M $CRAFTY_USER && \
+    mkdir -p $CRAFTY_DIR && \
+    chown -R $CRAFTY_USER:root $CRAFTY_DIR
 
-# Install Crafty
-RUN useradd -g root -M crafty && \
-    mkdir -p /crafty && \
-    chown -R crafty:root /crafty
-#    curl -L https://craftycontrol.com/releases/latest/crafty4.zip -o /crafty/crafty4.zip && \
-#    unzip /crafty/crafty4.zip -d /crafty && \
-#    rm /crafty/crafty4.zip
+# Download and extract latest Crafty release into /crafty
+RUN curl -s $CRAFTY_RELEASE_URL \
+    | grep "browser_download_url.*Crafty.*\.zip" \
+    | cut -d '"' -f 4 \
+    | wget -i - -O /tmp/crafty.zip && \
+    && unzip /tmp/crafty.zip -d $CRAFTY_DIR \
+    && rm /tmp/crafty.zip \
+    && chown -R $CRAFTY_USER:root $CRAFTY_DIR \
+    && ls -lah / \
+    && ls -lah /crafty
 
 # Switch to service user for installing crafty deps
 USER crafty
@@ -50,22 +60,26 @@ USER root
 
 # Copy Source w/ perms & prepare default config from example
 COPY --chown=crafty:root ./ ./
-RUN mv ./app/config ./app/config_original \
-    && mv ./app/config_original/default.json.example ./app/config_original/default.json
- #   && chmod +x ./docker_launcher.sh
+RUN ls -lah ./app \
+    && -d ./app/config \
+    && mv ./app/config ./app/config_original || echo "Directory ./app/config not found, skipping move." \
+    && -f ./app/config_original/default.json.example \
+    && mv ./app/config_original/default.json.example ./app/config_original/default.json || echo "default.json.example not found, skipping rename." \
+    && chmod +x ./run.sh
 
 # Expose Web Interface port & Server port range
 EXPOSE 8000
 EXPOSE 8443
 EXPOSE 8100
-EXPOSE 8124
 EXPOSE 19132
 EXPOSE 19134
 EXPOSE 25500-25600
 
 # Start Crafty through wrapper
-ENTRYPOINT ["/crafty/run.sh"]
+ENTRYPOINT ["./run.sh"]
 CMD ["-d", "-i"]
+
+#CMD ["./run.sh -d -i"]
 
 # Add meta labels
 ARG BUILD_DATE
@@ -87,6 +101,6 @@ LABEL \
     io.hass.type="addon"
 
 
-#RUN chmod +x crafty.sh
+#RUN chmod +x ./run.sh
 
-#CMD [ "./crafty.sh" ]
+#CMD [ "./run.sh" ]

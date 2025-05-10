@@ -5,7 +5,6 @@ slug: crafty-controller
 description: A Home Assistant add-on for Crafty Controller, a game server management panel.
 arch:
   - amd64
-  - arm64
 startup: services
 boot: auto
 
@@ -30,7 +29,6 @@ privileged:
 ports:
   8000/tcp: 8000 # HTTP WebUI
   8443/tcp: 8443 # HTTPS WebUI
-  8124/tcp: 8123 # Dynmap (optional)
   8100/tcp: 8100 # BlueMap (optional)
   19132/udp: 19132 # Bedrock
   19134/udp: 19134 #Geyser/Floodgate Port for Bedrock Clients
@@ -42,8 +40,6 @@ volumes:
   - "./docker/servers:/crafty/servers"
   - "./docker/config:/crafty/app/config"
   - "./docker/import:/crafty/import"
-
-#image: craftycontrol/crafty-4:latest
 
 options: {}
 schema: {}

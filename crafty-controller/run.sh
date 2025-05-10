@@ -1,4 +1,6 @@
-#!/usr/bin/env bashio
+#!/usr/bin/with-contenv bashio
+
+bashio::log.info "Starting Crafty Controller..."
 
 # This has been copied from here https://gitlab.com/crafty-controller/crafty-4/-/blob/master/docker_launcher.sh
 
@@ -17,7 +19,7 @@ if [ ! "$(ls -A --ignore=.gitkeep ./app/config)" ]; then
     mkdir ./app/config/ 2> /dev/null
     cp -r ./app/config_original/* ./app/config/
 
-    if [ $(id -u) -eq 0 ]; then
+    if [ "$(id -u)" -eq 0 ]; then
         # We're running as root;
 
         # Look for files & dirs that require group permissions to be fixed
@@ -34,7 +36,7 @@ else
 fi
 
 
-if [ $(id -u) -eq 0 ]; then
+if [ "$(id -u)" -eq 0 ]; then
     # We're running as root
 
     # If we find files in import directory, we need to ensure all dirs are owned by the root group,
@@ -61,7 +63,4 @@ else
     exec python3 main.py "$@"
 fi
 
-
-bashio::log.info "Starting..."
-
-/start
+#/start
