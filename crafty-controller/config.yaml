@@ -1,7 +1,7 @@
 # Created with assistance from chatGPT
 name: Crafty Controller
 version: "1.0.0"
-slug: crafty_controller
+slug: crafty-controller
 description: A Home Assistant add-on for Crafty Controller, a game server management panel.
 arch:
   - amd64
@@ -27,13 +27,13 @@ privileged:
 
 # Port mappings
 ports:
-  8000/tcp: 8000     # HTTP WebUI
-  8443/tcp: 8443     # HTTPS WebUI
-  8124/tcp: 8123     # Dynmap (optional)
-  8100/tcp: 8100     # BlueMap (optional)
-  19132/udp: 19132   # Bedrock
-  19134/udp: 19134   #Geyser/Floodgate Port for Bedrock Clients
-  25500-25600/tcp: 25500-25600
+  8000/tcp: 8000 # HTTP WebUI
+  8443/tcp: 8443 # HTTPS WebUI
+  8124/tcp: 8123 # Dynmap (optional)
+  8100/tcp: 8100 # BlueMap (optional)
+  19132/udp: 19132 # Bedrock
+  19134/udp: 19134 #Geyser/Floodgate Port for Bedrock Clients
+  25500/tcp: 25500
 
 volumes:
   - "./docker/backups:/crafty/backups"
