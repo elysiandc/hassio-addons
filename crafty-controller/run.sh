@@ -1,66 +1,152 @@
 #!/usr/bin/with-contenv bashio
+# shellcheck shell=bashio
 
-bashio::log.info "Starting Crafty Controller..."
+#source /usr/lib/hassio-addons/bashio.sh
 
-# This has been copied from here https://gitlab.com/crafty-controller/crafty-4/-/blob/master/docker_launcher.sh
+bashio::log.info "===> CRAFTY-ADDON: run.sh started"
+bashio::log.info "Running as: $(whoami)"
 
-repair_permissions () {
-    bashio::log.info "\033[36mWrapper | \033[35m📋 (1/3) Ensuring root group ownership...\033[0m\n"
-    find . ! -group root -print0 | xargs -0 -r chgrp root
-    bashio::log.info "\033[36mWrapper | \033[35m📋 (2/3) Ensuring group read-write is present on files...\033[0m\n"
-    find . ! -perm g+rw -print0 | xargs -0 -r chmod g+rw
-    bashio::log.info "\033[36mWrapper | \033[35m📋 (3/3) Ensuring sticky bit is present on directories...\033[0m\n"
-    find . -type d ! -perm g+s -print0 | xargs -0 -r chmod g+s
-}
+set -e pipefail
 
-# Check if config exists taking one from image if needed.
-if [ ! "$(ls -A --ignore=.gitkeep ./app/config)" ]; then
-    bashio::log.info "\033[36mWrapper | \033[33m🏗️  Config not found, pulling defaults...\033[0m\n"
-    mkdir ./app/config/ 2> /dev/null
-    cp -r ./app/config_original/* ./app/config/
+# Import functions and variables from Home Assistant
+bashio::log.info "===> CRAFTY-ADDON: Starting Crafty Controller add-on script..."
 
-    if [ "$(id -u)" -eq 0 ]; then
-        # We're running as root;
+# Set paths for clarity
+CRAFTY_DIR="/crafty"
+APP_DIR="${CRAFTY_DIR}/app"
+CONFIG_DIR="${CRAFTY_DIR}/app/config"
+SERVERS_DIR="${CRAFTY_DIR}/servers"
+BACKUP_DIR="${CRAFTY_DIR}/backups"
+IMPORT_DIR="${CRAFTY_DIR}/import"
+LOGS_DIR="${CRAFTY_DIR}/logs"
 
-        # Look for files & dirs that require group permissions to be fixed
-        # This will do the full /crafty dir, so will take a miniute.
-        bashio::log.info "\033[36mWrapper | \033[35m📋 Looking for problem bind mount permissions globally...\033[0m\n"
+# Ensure proper ownership of mapped volumes
+# bashio::log.info "===> CRAFTY-ADDON: Setting up directory permissions..."
+# for dir in "${CONFIG_DIR}" "${SERVERS_DIR}" "${BACKUP_DIR}" "${IMPORT_DIR}" "${LOGS_DIR}"; do
+#     if mkdir -p "$dir"; then
+#         bashio::log.info "===> Created directory: ${dir}"
+#     else
+#         bashio::log.error "!!! Failed to create directory: ${dir}"
+#         continue
+#     fi
 
-        repair_permissions
+#     if chown -R crafty:crafty "$dir"; then
+#         bashio::log.info "===> Set ownership for: ${dir}"
+#     else
+#         bashio::log.error "!!! Failed to set ownership for: ${dir}"
+#         continue
+#     fi
 
-        bashio::log.info "\033[36mWrapper | \033[32m✅ Initialization complete!\033[0m\n"
+#     bashio::log.info "===> CRAFTY-ADDON: ${dir} DONE..."
+# done
+
+# Check if first run (initialize if needed)
+if [ ! -f "${CONFIG_DIR}/config.yml" ]; then
+    bashio::log.info "===> CRAFTY-ADDON: First run detected, initializing Crafty configuration..."
+
+    if mkdir -p "${CONFIG_DIR}"; then
+        bashio::log.info "===> Created config directory: ${CONFIG_DIR}"
+    else
+        bashio::log.error "!!! Failed to create config directory: ${CONFIG_DIR}"
     fi
-else
-    # Keep version file up to date with image
-    cp -f ./app/config_original/version.json ./app/config/version.json
+
+    # Create default config.yml
+    if [ ! -f "${CONFIG_DIR}/config.yml" ]; then
+        if [ -f "${CONFIG_DIR}/config.yml.default" ]; then
+            cp "${CONFIG_DIR}/config.yml.default" "${CONFIG_DIR}/config.yml" && \
+                bashio::log.info "===> Default config.yml created." || \
+                bashio::log.warning "!!! Failed to copy default config.yml."
+        else
+            bashio::log.warning "!!! Missing default config.yml.default!"
+        fi
+    fi
+
+    # Create default users.json
+    if [ ! -f "${CONFIG_DIR}/users.json" ]; then
+        if [ -f "${CONFIG_DIR}/users.json.default" ]; then
+            cp "${CONFIG_DIR}/users.json.default" "${CONFIG_DIR}/users.json" && \
+                bashio::log.info "===> Default users.json created." || \
+                bashio::log.warning "!!! Failed to copy default users.json."
+        else
+            bashio::log.warning "!!! Missing default users.json.default!"
+        fi
+    fi
+
+    # Create session key
+    if [ ! -f "${CONFIG_DIR}/session_key.txt" ]; then
+        if python -c "import secrets; print(secrets.token_hex(16))" > "${CONFIG_DIR}/session_key.txt"; then
+            bashio::log.info "===> Session key created successfully."
+        else
+            bashio::log.error "!!! Failed to create session key."
+        fi
+    fi
 fi
 
+# Check for import files
+if [ -d "${IMPORT_DIR}" ] && [ "$(ls -A ${IMPORT_DIR} 2>/dev/null)" ]; then
+    bashio::log.info "===> CRAFTY-ADDON: Import directory not empty, checking for files to import..."
+    # Handle server imports
+    shopt -s nullglob
+    for server_archive in ${IMPORT_DIR}/*.tar.gz ${IMPORT_DIR}/*.zip; do
 
-if [ "$(id -u)" -eq 0 ]; then
-    # We're running as root
+        if [ -f "$server_archive" ]; then
+            basename=$(basename "$server_archive")
+            server_name="${basename%.*}"
 
-    # If we find files in import directory, we need to ensure all dirs are owned by the root group,
-    # This fixes bind mounts that may have incorrect perms.
-    if [ "$(find ./import -type f ! -name '.gitkeep')" ]; then
-        bashio::log.info "\033[36mWrapper | \033[35m📋 Files present in import directory, checking/fixing permissions...\033[0m\n"
-        bashio::log.info "\033[36mWrapper | \033[33m⏳ Please be patient for larger servers...\033[0m\n"
+            bashio::log.info "===> CRAFTY-ADDON: Importing server: $server_name"
 
-        repair_permissions
+            mkdir -p "${SERVERS_DIR}/${server_name}"
 
-        bashio::log.info "\033[36mWrapper | \033[32m✅ Permissions Fixed! (This will happen every boot until /import is empty!)\033[0m\n"
-    fi
+            if [[ "$server_archive" == *.tar.gz ]]; then
+                tar -xzf "$server_archive" -C "${SERVERS_DIR}/${server_name}"
+            elif [[ "$server_archive" == *.zip ]]; then
+                unzip "$server_archive" -d "${SERVERS_DIR}/${server_name}"
+            fi
 
-    # Switch user, activate our prepared venv and launch crafty
-    args="$@"
-    bashio::log.info "\033[36mWrapper | \033[32m🚀 Launching crafty with [\033[34m%s\033[32m]\033[0m\n" "$args"
-    exec sudo -u crafty bash -c "source ./.venv/bin/activate && exec python3 main.py $args"
-else
-    # Activate our prepared venv
-    bashio::log.info "\033[36mWrapper | \033[32m🚀 Non-root host detected, using normal exec\033[0m\n"
-    . ./.venv/bin/activate
-    # Use exec as our perms are already correct
-    # This is likely if using Kubernetes/OpenShift etc
-    exec python3 main.py "$@"
+            # Move imported file to backup dir to prevent reimporting
+            mv "$server_archive" "${BACKUP_DIR}/"
+
+            bashio::log.info "===> CRAFTY-ADDON: Server $server_name imported successfully"
+        fi
+    done
 fi
 
-#/start
+# Run Crafty as the crafty user
+bashio::log.info "===> CRAFTY-ADDON: Starting Crafty Controller Server..."
+cd ${APP_DIR}
+
+# Set execution options
+EXEC_OPTS="--no_prompt --config_dir=${CONFIG_DIR} --servers_dir=${SERVERS_DIR} --logs_dir=${LOGS_DIR} --backups_dir=${BACKUP_DIR}"
+
+# Print Python & pip versions for debugging
+python_version=$(python3 --version)
+pip_version=$(pip3 --version)
+bashio::log.info "===> CRAFTY-ADDON: Python version: ${python_version}"
+bashio::log.info "===> CRAFTY-ADDON: Pip version: ${pip_version}"
+
+# Display Crafty version
+#if [ -f "${APP_DIR}/VERSION" ]; then
+#    version=$(cat ${APP_DIR}/VERSION)
+#    bashio::log.info "===> CRAFTY-ADDON: Crafty Controller version: ${version}"
+#else
+#    bashio::log.info "===> CRAFTY-ADDON: Crafty Controller version: unknown (VERSION file not found)"
+#fi
+
+# Set up environment variables
+export PYTHONPATH="${APP_DIR}:${PYTHONPATH:-}"
+export PYTHONUNBUFFERED=1
+
+# Activate virtual environment if it exists
+if [ -f "${CRAFTY_DIR}/.venv/bin/activate" ]; then
+    bashio::log.info "===> Activating virtual environment..."
+    source "${CRAFTY_DIR}/.venv/bin/activate"
+else
+    bashio::log.warning "===> Virtual environment not found! Falling back to system Python (not recommended)."
+fi
+
+# Start Crafty Controller
+bashio::log.info "===> CRAFTY-ADDON: Executing: python3 ${CRAFTY_DIR}/main.py -i -d"
+cd ${CRAFTY_DIR} && exec python3 main.py -i -d
+
+bashio::log.warning "===> Crafty didn't start. Sleeping forever for debug."
+tail -f /dev/null

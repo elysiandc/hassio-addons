@@ -3,8 +3,16 @@ name: Crafty Controller
 version: "1.0.0"
 slug: crafty-controller
 description: A Home Assistant add-on for Crafty Controller, a game server management panel.
-startup: services
+arch:
+  - amd64
+#  - aarch64
+#  - armv7
+startup: application
 boot: auto
+init: false
+host_network: true
+homeassistant_api: false
+environment: { "PYTHONUNBUFFERED": "1" }
 
 # Enable Ingress
 ingress: true
@@ -12,8 +20,6 @@ ingress_port: 8000
 ingress_entry: /
 # Needed for HTTPS / WS connections in iframe
 ingress_stream: true
-
-host_network: false
 
 # Crafty does not require auth cookie passthrough
 panel_icon: mdi:server
@@ -32,12 +38,13 @@ ports:
   19134/udp: 19134 #Geyser/Floodgate Port for Bedrock Clients
   25500/tcp: 25500
 
-volumes:
-  - "./docker/backups:/crafty/backups"
-  - "./docker/logs:/crafty/logs"
-  - "./docker/servers:/crafty/servers"
-  - "./docker/config:/crafty/app/config"
-  - "./docker/import:/crafty/import"
+map:
+  - /share/crafty:/crafty
+  - /config/crafty/app/config:/crafty/app/config
+  - /backup:/crafty/backups
+  - /share/crafty/logs:/crafty/logs
+  - /share/crafty/servers:/crafty/servers
+  - /share/crafty/import:/crafty/import
 
 options: {}
 schema: {}

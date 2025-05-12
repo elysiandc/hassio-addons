@@ -1,106 +1,162 @@
-# This is largely based on https://gitlab.com/crafty-controller/crafty-4/-/blob/master/Dockerfile
-
 ARG BUILD_FROM
-FROM $BUILD_FROM
+FROM "ghcr.io/home-assistant/amd64-base:latest"
 
-ENV CRAFTY_DIR=/crafty
-ENV CRAFTY_USER=crafty
-ENV CRAFTY_RELEASE_URL="https://api.github.com/repos/crafty-controller/crafty/releases/latest"
+# Set shell
+#SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-# Install dependencies
-RUN apt-get update && apt-get -y --no-install-recommends install \
-    bash \
-    curl \
-    sudo \
-    unzip \
-    sudo \
-    # Following dependencies from https://gitlab.com/crafty-controller/crafty-4/-/blob/master/Dockerfile
-    gcc \
-    libcurl4 \
-    python3 \
-    python3-dev \
-    python3-pip \
-    python3-venv \
-    libmariadb-dev \
-    default-jre \
-    openjdk-8-jre-headless \
-    openjdk-11-jre-headless \
-    openjdk-17-jre-headless \
-    openjdk-21-jre-headless \
-    && apt-get autoremove \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+# Enable verbose output for build logs
+# Set S6 to report any failure during add-on startup
+ENV S6_VERBOSITY=2
+ENV S6_BEHAVIOUR_IF_STAGE2_FAILS=2
 
-# Create user and working directory
-RUN id -u $CRAFTY_USER >/dev/null 2>&1 || useradd -g root -M $CRAFTY_USER && \
-    mkdir -p $CRAFTY_DIR && \
-    chown -R $CRAFTY_USER:root $CRAFTY_DIR
+# Print debug info
+RUN echo "===> CRAFTY-ADDON: Build environment information:" && env
 
-# Download and extract latest Crafty release into /crafty
-RUN curl -s $CRAFTY_RELEASE_URL \
-    | grep "browser_download_url.*Crafty.*\.zip" \
-    | cut -d '"' -f 4 \
-    | wget -i - -O /tmp/crafty.zip && \
-    && unzip /tmp/crafty.zip -d $CRAFTY_DIR \
-    && rm /tmp/crafty.zip \
-    && chown -R $CRAFTY_USER:root $CRAFTY_DIR \
-    && ls -lah / \
-    && ls -lah /crafty
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV PATH="/usr/local/bin:${PATH}"
+ENV CRAFTY_INSTALL_DIR="/crafty"
+ENV CRAFTY_USER="crafty"
+ENV TZ=UTC
 
-# Switch to service user for installing crafty deps
-USER crafty
-WORKDIR /crafty
-COPY --chown=crafty:root requirements.txt ./
-RUN python3 -m venv ./.venv \
-    && . .venv/bin/activate \
-    && pip3 install --no-cache-dir --upgrade setuptools==75.6.0 pip==24.3.1 \
-    && pip3 install --no-cache-dir -r requirements.txt \
-    && deactivate
+# Add dependencies
+RUN \
+    echo "** Checking available Java versions **" \
+    && apk search "openjdk*" \
+    && echo "** Installing base dependencies **" \
+    # && apk add --no-cache \
+    && apk add \
+        bash \
+        curl \
+        wget \
+        git \
+        python3 \
+        py3-pip \
+        py3-wheel \
+        build-base \
+        python3-dev \
+        # Multiple Java versions for different Minecraft servers
+        openjdk8-jre \
+        openjdk11-jre \
+        openjdk17-jre \
+        openjdk21-jre \
+        # Development kits for potential server plugins
+        openjdk8 \
+        openjdk11 \
+        openjdk17 \
+        openjdk21 \
+        zip \
+        unzip \
+        tar \
+        fontconfig \
+        ttf-dejavu \
+        ca-certificates \
+        nginx \
+        libstdc++ \
+        libc6-compat \
+        gcompat \
+        # Extra utilities for Minecraft servers
+        nano \
+        htop \
+        jq \
+    && echo "** Finished installing base dependencies **"
+    # Bashio is already included in the base image
+
+# Setup the folders in the host for mappings
+COPY install /
+RUN chmod a+x /install
+
+# Create crafty user and directories
+RUN \
+    echo "** Creating crafty user **" \
+    && mkdir -p ${CRAFTY_INSTALL_DIR} \
+    && addgroup -g 1000 crafty \
+    && adduser -u 1000 -G crafty -D -H -s /bin/bash crafty \
+    && mkdir -p ${CRAFTY_INSTALL_DIR}/app \
+    && mkdir -p ${CRAFTY_INSTALL_DIR}/servers \
+    && mkdir -p ${CRAFTY_INSTALL_DIR}/backups \
+    && mkdir -p ${CRAFTY_INSTALL_DIR}/import \
+    && mkdir -p ${CRAFTY_INSTALL_DIR}/logs
+
+# Clone Crafty Controller repo
+ARG CRAFTY_VERSION
+RUN \
+    echo "** Cloning Crafty Controller ${CRAFTY_VERSION} **" \
+    && cd /tmp \
+    && git clone --branch master https://gitlab.com/crafty-controller/crafty-4.git \
+    && cd crafty-4 \
+    && echo "** Crafty version: $(git describe --tags) **" \
+    && cp -R . ${CRAFTY_INSTALL_DIR}/ \
+    && cd ${CRAFTY_INSTALL_DIR}/app \
+    && echo "** Installing Crafty requirements **" \
+    # Alpine-specific modifications for Crafty requirements
+    && apk add --no-cache --virtual .build-deps \
+        gcc \
+        musl-dev \
+        libffi-dev \
+        openssl-dev \
+    && apk del .build-deps \
+    && echo "** Cleanup after installation **" \
+    && rm -rf /tmp/crafty-4 \
+    && chown -R crafty:crafty ${CRAFTY_INSTALL_DIR}
+
+# Switch to working dir and prepare virtualenv
+WORKDIR $CRAFTY_INSTALL_DIR
+USER $CRAFTY_USER
+# Set up Python virtual environment for Crafty
+RUN echo "** Creating Python virtual environment for Crafty **" \
+    && python3 -m venv /crafty/.venv \
+    && . /crafty/.venv/bin/activate \
+    && pip install --upgrade pip setuptools wheel packaging \
+    && echo "** Installing Crafty requirements in virtualenv **" \
+    && pip install --no-cache-dir -r /crafty/requirements.txt \
+    && echo "** Python environment setup complete **"
 USER root
 
-# Copy Source w/ perms & prepare default config from example
-COPY --chown=crafty:root ./ ./
-RUN ls -lah ./app \
-    && -d ./app/config \
-    && mv ./app/config ./app/config_original || echo "Directory ./app/config not found, skipping move." \
-    && -f ./app/config_original/default.json.example \
-    && mv ./app/config_original/default.json.example ./app/config_original/default.json || echo "default.json.example not found, skipping rename." \
-    && chmod +x ./run.sh
+# Copy run script and make executable
+COPY run.sh /
+RUN chmod a+x /run.sh
+#COPY run.sh /etc/services.d/crafty/run
+#RUN chmod +x /etc/services.d/crafty/run
 
-# Expose Web Interface port & Server port range
-EXPOSE 8000
-EXPOSE 8443
-EXPOSE 8100
-EXPOSE 19132
-EXPOSE 19134
-EXPOSE 25500-25600
+# Working directory
+WORKDIR ${CRAFTY_INSTALL_DIR}/app
 
-# Start Crafty through wrapper
-ENTRYPOINT ["./run.sh"]
-CMD ["-d", "-i"]
+# Create persistent directories and set permissions
+RUN mkdir -p /data && chown -R crafty:crafty /data
 
-#CMD ["./run.sh -d -i"]
+# Define volumes
+VOLUME [ "/crafty/app/config", "/crafty/servers", "/crafty/backups", "/crafty/import", "/crafty/logs" ]
 
-# Add meta labels
+# Expose ports (WebUI, Minecraft servers, etc.)
+EXPOSE 8000 8443 8100 19132/udp 19134/udp 25500
+
+# Labels
+ARG BUILD_ARCH
 ARG BUILD_DATE
+ARG BUILD_DESCRIPTION
+ARG BUILD_NAME
 ARG BUILD_REF
-ARG CRAFTY_VER
+ARG BUILD_REPOSITORY
+ARG BUILD_VERSION
+
 LABEL \
-    maintainer="Zedifus <https://gitlab.com/zedifus>" \
+    io.hass.name="${BUILD_NAME}" \
+    io.hass.description="${BUILD_DESCRIPTION}" \
+    io.hass.arch="${BUILD_ARCH}" \
+    io.hass.type="addon" \
+    io.hass.version=${BUILD_VERSION} \
+    maintainer="The BFG" \
+    org.opencontainers.image.title="${BUILD_NAME}" \
+    org.opencontainers.image.description="${BUILD_DESCRIPTION}" \
+    org.opencontainers.image.vendor="Home Assistant Add-on" \
+    org.opencontainers.image.authors="The BFG" \
+    org.opencontainers.image.licenses="MIT" \
+    org.opencontainers.image.url="https://github.com/elysiandc/hassio-addons" \
+    org.opencontainers.image.source="https://github.com/elysiandc/hassio-addons/tree/main/crafty-controller" \
+    org.opencontainers.image.documentation="https://github.com/elysiandc/hassio-addons/blob/main/crafty-controller/README.md" \
     org.opencontainers.image.created=${BUILD_DATE} \
     org.opencontainers.image.revision=${BUILD_REF} \
-    org.opencontainers.image.version=${CRAFTY_VER} \
-    org.opencontainers.image.title="Crafty Controller" \
-    org.opencontainers.image.description="A Game Server Control Panel / Launcher" \
-    org.opencontainers.image.url="https://craftycontrol.com/" \
-    org.opencontainers.image.documentation="https://docs.craftycontrol.com" \
-    org.opencontainers.image.source="https://gitlab.com/crafty-controller/crafty-4" \
-    org.opencontainers.image.vendor="Arcadia Technology, LLC." \
-    org.opencontainers.image.licenses="GPL-3.0" \
-    io.hass.version="VERSION" \
-    io.hass.type="addon"
+    org.opencontainers.image.version=${BUILD_VERSION}
 
-
-#RUN chmod +x ./run.sh
-
-#CMD [ "./run.sh" ]
+CMD ["/run.sh"]
