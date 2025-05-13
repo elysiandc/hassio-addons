@@ -84,7 +84,7 @@ schema:
   force_https: bool
   certfile: str
   keyfile: str
-  log_level: list(trace|debug|info|notice|warning|error|fatal)#
+  log_level: list(trace|debug|info|notice|warning|error|fatal)
   #use_cdn: bool
   #use_uvloop: bool
   #dev_mode: bool
