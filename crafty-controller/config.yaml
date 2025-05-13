@@ -61,7 +61,7 @@ map:
   addon_config:rw
   ssl:rw
   addons:rw
-  backup:rw
+  #backup:rw
   share:rw
   data:rw
 

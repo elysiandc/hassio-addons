@@ -18,7 +18,7 @@ log_error() {
 # Use standard Home Assistant paths with crafty parent folder
 CRAFTY_HOME="${CRAFTY_HOME:-/crafty}"
 SHARE_DIR="/share/crafty"              # Persistent data
-BACKUP_DIR="/backup/crafty"            # Backups
+BACKUP_DIR="/share/backup/crafty"      # Backups
 CONFIG_DIR="/data/crafty/config"       # Runtime config
 
 # Ensure parent directories exist
