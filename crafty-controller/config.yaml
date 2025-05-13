@@ -10,8 +10,7 @@ panel_title: Crafty
 
 arch:
   - amd64
-#  - aarch64
-#  - armv7
+  - aarch64
 startup: application
 boot: auto
 init: false
@@ -21,7 +20,7 @@ homeassistant_api: false
 
 # Enable Ingress
 ingress: true
-ingress_port: 8443
+ingress_port: 8433
 ingress_entry: "/panel/login"
 ingress_stream: true # Needed for HTTPS / WS connections in iframe
 
@@ -31,8 +30,7 @@ ingress_stream: true # Needed for HTTPS / WS connections in iframe
 
 # Port mappings
 ports:
-  #8000/tcp: 8000 # HTTP WebUI
-  8443/tcp: 8443 # HTTPS WebUI
+  8433/tcp: 8443 # HTTPS WebUI
   8100/tcp: 8100 # Dynmap (optional)
   8023/tcp: 8023 # BlueMap (optional)
   19132/udp: 19132 # Bedrock
@@ -46,8 +44,7 @@ ports:
   25570/tcp: 25570
 
 ports_description:
-  #8000/tcp: 8000 "Web interface (Not required for Ingress)"
-  8443/tcp: 8443 "HTTPS Web interface"
+  8433/tcp: 8443 "HTTPS Web interface"
   8100/tcp: 8100 "Dynmap (optional)"
   8023/tcp: 8023 "BlueMap (optional)"
   19132/udp: 19132 "Bedrock"
@@ -61,16 +58,16 @@ ports_description:
   25570/tcp: "Additional Minecraft server port"
 
 map:
-  addon_configs: rw
-  ssl: rw
-  addons: rw
-  #backup: rw
-  share: rw
-  data: rw
+  addon_config:rw
+  ssl:rw
+  addons:rw
+  backup:rw
+  share:rw
+  data:rw
 
 options:
   username: admin
-  password: craftyadmin
+  password: ChangeMePassword123!
   ssl: true
   force_https: true
   certfile: fullchain.pem
@@ -82,7 +79,7 @@ options:
 
 schema:
   username: str
-  password: str
+  password: "str(12,72)?"  # Min 12 chars, max 72
   ssl: bool
   force_https: bool
   certfile: str

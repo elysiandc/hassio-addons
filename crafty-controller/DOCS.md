@@ -19,37 +19,21 @@ Follow these steps to get the add-on installed on your system:
 
 ## Configuration
 
-### Option: `ssl`
+### Password Requirements
 
-Enables/Disables SSL (HTTPS) on the web interface. Set it to `true` to enable it, `false` otherwise.
+The password must meet these minimum requirements:
 
-### Option: `certfile`
+- At least 12 characters long
+- Must contain at least one letter
+- Must contain at least one number
+- Special characters are allowed but not required
 
-The certificate file to use for SSL.
+Example configuration:
 
-**Note**: The file MUST be stored in `/ssl/`, which is the default.
-
-### Option: `keyfile`
-
-The private key file to use for SSL.
-
-**Note**: The file MUST be stored in `/ssl/`, which is the default.
-
-### Option: `force_https`
-
-Forces all HTTP traffic to be redirected to HTTPS. Only applicable when `ssl` is set to `true`.
-
-### Option: `use_cdn`
-
-Enables the use of CDN for JavaScript and CSS assets. This may improve page loading times but requires internet connectivity.
-
-### Option: `use_uvloop`
-
-Enables the uvloop event loop for Tornado, which can improve performance. Recommended to leave enabled unless you encounter issues.
-
-### Option: `dev_mode`
-
-Enables developer mode, which provides additional debugging routes and information. Not recommended for production use.
+```yaml
+username: "admin"
+password: "YourSecurePassword123"
+```
 
 ### Option: `log_level`
 
@@ -69,20 +53,23 @@ more severe level, e.g., `debug` also shows `info` messages. By default,
 the `log_level` is set to `info`, which is the recommended setting unless
 you are troubleshooting.
 
-## Data Locations
+### Data Storage Locations
 
-Crafty Controller data is stored in the following locations:
+The addon stores data in the following locations:
 
-- Server files: `/data/servers/`
-- Import location: `/data/import/`
-- Backups: `/backup/crafty/`
-- Configuration: `/addon_config/crafty/`
+- `/share/crafty/servers`: Minecraft server files
+- `/share/crafty/import`: Import directory
+- `/share/crafty/config`: Crafty configuration
+- `/backup/crafty`: Backup files
+
+All data persists across addon restarts and updates.
 
 ## Ports
 
 This add-on exposes the following ports:
 
-- 8000/tcp: Web interface
+- 8443/tcp: Web interface outside Home Assistant
+- 8433/tcp: Used for Ingress
 - 25565-25570/tcp: Default Minecraft server ports
 
 You can use these ports to access your Minecraft servers from outside your network. Remember to configure port forwarding on your router if needed.
