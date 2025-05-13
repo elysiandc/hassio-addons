@@ -1,8 +1,13 @@
-# Created with assistance from chatGPT
+# Created with assistance from chatGPT and Claude
 name: Crafty Controller
 version: "1.0.0"
 slug: crafty-controller
-description: A Home Assistant add-on for Crafty Controller, a game server management panel.
+description: A Home Assistant add-on for Crafty Controller, a Minecraft server management panel.
+url: "https://github.com/elysiandc/hassio-addons"
+webui: "https://[HOST]:[PORT:8443]"
+panel_icon: mdi:server
+panel_title: Crafty
+
 arch:
   - amd64
 #  - aarch64
@@ -10,41 +15,84 @@ arch:
 startup: application
 boot: auto
 init: false
-host_network: true
+#host_network: true
 homeassistant_api: false
-environment: { "PYTHONUNBUFFERED": "1" }
+#environment: { "PYTHONUNBUFFERED": "1" }
 
 # Enable Ingress
 ingress: true
-ingress_port: 8000
-ingress_entry: /
-# Needed for HTTPS / WS connections in iframe
-ingress_stream: true
-
-# Crafty does not require auth cookie passthrough
-panel_icon: mdi:server
-panel_title: Crafty
+ingress_port: 8443
+ingress_entry: "/panel/login"
+ingress_stream: true # Needed for HTTPS / WS connections in iframe
 
 # Required for Docker access, server port ranges, and file persistence
-privileged:
-  - SYS_ADMIN
+#privileged:
+#  - SYS_ADMIN
 
 # Port mappings
 ports:
-  8000/tcp: 8000 # HTTP WebUI
+  #8000/tcp: 8000 # HTTP WebUI
   8443/tcp: 8443 # HTTPS WebUI
-  8100/tcp: 8100 # BlueMap (optional)
+  8100/tcp: 8100 # Dynmap (optional)
+  8023/tcp: 8023 # BlueMap (optional)
   19132/udp: 19132 # Bedrock
   19134/udp: 19134 #Geyser/Floodgate Port for Bedrock Clients
   25500/tcp: 25500
+  25565/tcp: 25565
+  25566/tcp: 25566
+  25567/tcp: 25567
+  25568/tcp: 25568
+  25569/tcp: 25569
+  25570/tcp: 25570
+
+ports_description:
+  #8000/tcp: 8000 "Web interface (Not required for Ingress)"
+  8443/tcp: 8443 "HTTPS Web interface"
+  8100/tcp: 8100 "Dynmap (optional)"
+  8023/tcp: 8023 "BlueMap (optional)"
+  19132/udp: 19132 "Bedrock"
+  19134/udp: 19134 "Geyser/Floodgate Port for Bedrock Clients"
+  25500/tcp: 25500 "Extra port"
+  25565/tcp: 25565 "Minecraft server port"
+  25566/tcp: "Additional Minecraft server port"
+  25567/tcp: "Additional Minecraft server port"
+  25568/tcp: "Additional Minecraft server port"
+  25569/tcp: "Additional Minecraft server port"
+  25570/tcp: "Additional Minecraft server port"
 
 map:
-  - /share/crafty:/crafty
-  - /config/crafty/app/config:/crafty/app/config
-  - /backup:/crafty/backups
-  - /share/crafty/logs:/crafty/logs
-  - /share/crafty/servers:/crafty/servers
-  - /share/crafty/import:/crafty/import
+  addon_configs: rw
+  ssl: rw
+  addons: rw
+  #backup: rw
+  share: rw
+  data: rw
 
-options: {}
-schema: {}
+options:
+  username: admin
+  password: craftyadmin
+  ssl: true
+  force_https: true
+  certfile: fullchain.pem
+  keyfile: privkey.pem
+  log_level: debug
+  use_cdn: false
+  use_uvloop: true
+  dev_mode: false
+
+schema:
+  username: str
+  password: str
+  ssl: bool
+  force_https: bool
+  certfile: str
+  keyfile: str
+  log_level: list(trace|debug|info|notice|warning|error|fatal)
+  use_cdn: bool
+  use_uvloop: bool
+  dev_mode: bool
+  username: str
+  password: str
+
+environment:
+  LOG_FORMAT: "{LEVEL}: {MESSAGE}"

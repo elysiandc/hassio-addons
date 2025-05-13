@@ -1,152 +1,236 @@
-#!/usr/bin/with-contenv bashio
-# shellcheck shell=bashio
+#!/usr/bin/env bashio
 
-#source /usr/lib/hassio-addons/bashio.sh
+set -x
 
-bashio::log.info "===> CRAFTY-ADDON: run.sh started"
-bashio::log.info "Running as: $(whoami)"
+# Logging function
+log_info() {
+    echo "[$(date '+%H:%M:%S')] INFO: $*"
+}
 
-set -e pipefail
+log_warning() {
+    echo "[$(date '+%H:%M:%S')] WARNING: $*"
+}
 
-# Import functions and variables from Home Assistant
-bashio::log.info "===> CRAFTY-ADDON: Starting Crafty Controller add-on script..."
+log_error() {
+    echo "[$(date '+%H:%M:%S')] ERROR: $*" >&2
+}
 
-# Set paths for clarity
-CRAFTY_DIR="/crafty"
-APP_DIR="${CRAFTY_DIR}/app"
-CONFIG_DIR="${CRAFTY_DIR}/app/config"
-SERVERS_DIR="${CRAFTY_DIR}/servers"
-BACKUP_DIR="${CRAFTY_DIR}/backups"
-IMPORT_DIR="${CRAFTY_DIR}/import"
-LOGS_DIR="${CRAFTY_DIR}/logs"
+# Ensure CRAFTY_HOME is set
+CRAFTY_HOME="${CRAFTY_HOME:-/crafty}"
+CONFIG_DIR="${CRAFTY_HOME}/app/config"
+PERSISTENT_CONFIG_DIR="/data/crafty/config"
 
-# Ensure proper ownership of mapped volumes
-# bashio::log.info "===> CRAFTY-ADDON: Setting up directory permissions..."
-# for dir in "${CONFIG_DIR}" "${SERVERS_DIR}" "${BACKUP_DIR}" "${IMPORT_DIR}" "${LOGS_DIR}"; do
-#     if mkdir -p "$dir"; then
-#         bashio::log.info "===> Created directory: ${dir}"
-#     else
-#         bashio::log.error "!!! Failed to create directory: ${dir}"
-#         continue
-#     fi
+# Ensure persistent config directories exist
+mkdir -p "$PERSISTENT_CONFIG_DIR"
 
-#     if chown -R crafty:crafty "$dir"; then
-#         bashio::log.info "===> Set ownership for: ${dir}"
-#     else
-#         bashio::log.error "!!! Failed to set ownership for: ${dir}"
-#         continue
-#     fi
+log_info "Preparing configuration"
+log_info "CONFIG_DIR: $CONFIG_DIR"
+log_info "PERSISTENT_CONFIG_DIR: $PERSISTENT_CONFIG_DIR"
 
-#     bashio::log.info "===> CRAFTY-ADDON: ${dir} DONE..."
-# done
+# Backup original config files before setting up symlinks
+# This function copies essential files if they don't exist in persistent storage
+backup_and_init_config() {
+    log_info "Backing up original configuration files"
 
-# Check if first run (initialize if needed)
-if [ ! -f "${CONFIG_DIR}/config.yml" ]; then
-    bashio::log.info "===> CRAFTY-ADDON: First run detected, initializing Crafty configuration..."
-
-    if mkdir -p "${CONFIG_DIR}"; then
-        bashio::log.info "===> Created config directory: ${CONFIG_DIR}"
-    else
-        bashio::log.error "!!! Failed to create config directory: ${CONFIG_DIR}"
+    # Keep a backup copy of original config
+    if [ ! -d "${CRAFTY_HOME}/app/config_backup" ]; then
+        mkdir -p "${CRAFTY_HOME}/app/config_backup"
+        cp -a "${CONFIG_DIR}"/* "${CRAFTY_HOME}/app/config_backup/"
+        log_info "Original config backed up to ${CRAFTY_HOME}/app/config_backup"
     fi
 
-    # Create default config.yml
-    if [ ! -f "${CONFIG_DIR}/config.yml" ]; then
-        if [ -f "${CONFIG_DIR}/config.yml.default" ]; then
-            cp "${CONFIG_DIR}/config.yml.default" "${CONFIG_DIR}/config.yml" && \
-                bashio::log.info "===> Default config.yml created." || \
-                bashio::log.warning "!!! Failed to copy default config.yml."
-        else
-            bashio::log.warning "!!! Missing default config.yml.default!"
-        fi
+    # Copy essential config files to persistent storage if they don't exist
+    if [ ! -f "${PERSISTENT_CONFIG_DIR}/version.json" ] && [ -f "${CRAFTY_HOME}/app/config_backup/version.json" ]; then
+        cp "${CRAFTY_HOME}/app/config_backup/version.json" "${PERSISTENT_CONFIG_DIR}/"
+        log_info "Copied original version.json to persistent storage"
     fi
 
-    # Create default users.json
-    if [ ! -f "${CONFIG_DIR}/users.json" ]; then
-        if [ -f "${CONFIG_DIR}/users.json.default" ]; then
-            cp "${CONFIG_DIR}/users.json.default" "${CONFIG_DIR}/users.json" && \
-                bashio::log.info "===> Default users.json created." || \
-                bashio::log.warning "!!! Failed to copy default users.json."
-        else
-            bashio::log.warning "!!! Missing default users.json.default!"
-        fi
+    # Ensure version.json exists with proper values
+    if [ ! -f "${PERSISTENT_CONFIG_DIR}/version.json" ]; then
+        jq -n '{
+            "major": 4,
+            "minor": 4,
+            "sub": 7,
+            "version": "4.4.7"
+        }' > "${PERSISTENT_CONFIG_DIR}/version.json"
+        log_info "Created new version.json in persistent storage"
     fi
 
-    # Create session key
-    if [ ! -f "${CONFIG_DIR}/session_key.txt" ]; then
-        if python -c "import secrets; print(secrets.token_hex(16))" > "${CONFIG_DIR}/session_key.txt"; then
-            bashio::log.info "===> Session key created successfully."
-        else
-            bashio::log.error "!!! Failed to create session key."
-        fi
+    # Set proper permissions
+    chmod 644 "${PERSISTENT_CONFIG_DIR}/version.json"
+    chown -f crafty:root "${PERSISTENT_CONFIG_DIR}/version.json" 2>/dev/null || true
+
+    log_info "Configuration initialization complete"
+}
+
+# Function to create symlinks in a safe way
+safe_symlink() {
+    local source="$1"
+    local target="$2"
+
+    log_info "Creating symlink: $source -> $target"
+
+    # Ensure target directory exists
+    mkdir -p "$(dirname "$target")"
+
+    # If source exists and is a directory (not a symlink)
+    if [ -d "$source" ] && [ ! -L "$source" ]; then
+        # Create a temp directory for the content
+        mkdir -p "${target}_temp"
+        log_info "Copying content from $source to ${target}_temp"
+        cp -a "$source/." "${target}_temp/"
+        # Remove original directory
+        rm -rf "$source"
     fi
-fi
 
-# Check for import files
-if [ -d "${IMPORT_DIR}" ] && [ "$(ls -A ${IMPORT_DIR} 2>/dev/null)" ]; then
-    bashio::log.info "===> CRAFTY-ADDON: Import directory not empty, checking for files to import..."
-    # Handle server imports
-    shopt -s nullglob
-    for server_archive in ${IMPORT_DIR}/*.tar.gz ${IMPORT_DIR}/*.zip; do
+    # Create symlink
+    ln -sf "$target" "$source"
 
-        if [ -f "$server_archive" ]; then
-            basename=$(basename "$server_archive")
-            server_name="${basename%.*}"
+    # If we had temp contents, move them to the target
+    if [ -d "${target}_temp" ]; then
+        # Ensure target directory exists
+        mkdir -p "$target"
+        log_info "Moving temp content to $target"
+        cp -a "${target}_temp/." "$target/"
+        rm -rf "${target}_temp"
+    fi
+}
 
-            bashio::log.info "===> CRAFTY-ADDON: Importing server: $server_name"
+# Backup the original config files first
+backup_and_init_config
 
-            mkdir -p "${SERVERS_DIR}/${server_name}"
+# Create symlinks for persistent storage
+safe_symlink "${CRAFTY_HOME}/servers" "/data/crafty/servers"
+safe_symlink "${CRAFTY_HOME}/import" "/data/crafty/import"
+safe_symlink "${CRAFTY_HOME}/backups" "/data/crafty/backups"
+safe_symlink "${CRAFTY_HOME}/app/config" "/data/crafty/config"
 
-            if [[ "$server_archive" == *.tar.gz ]]; then
-                tar -xzf "$server_archive" -C "${SERVERS_DIR}/${server_name}"
-            elif [[ "$server_archive" == *.zip ]]; then
-                unzip "$server_archive" -d "${SERVERS_DIR}/${server_name}"
-            fi
-
-            # Move imported file to backup dir to prevent reimporting
-            mv "$server_archive" "${BACKUP_DIR}/"
-
-            bashio::log.info "===> CRAFTY-ADDON: Server $server_name imported successfully"
-        fi
-    done
-fi
-
-# Run Crafty as the crafty user
-bashio::log.info "===> CRAFTY-ADDON: Starting Crafty Controller Server..."
-cd ${APP_DIR}
-
-# Set execution options
-EXEC_OPTS="--no_prompt --config_dir=${CONFIG_DIR} --servers_dir=${SERVERS_DIR} --logs_dir=${LOGS_DIR} --backups_dir=${BACKUP_DIR}"
-
-# Print Python & pip versions for debugging
-python_version=$(python3 --version)
-pip_version=$(pip3 --version)
-bashio::log.info "===> CRAFTY-ADDON: Python version: ${python_version}"
-bashio::log.info "===> CRAFTY-ADDON: Pip version: ${pip_version}"
-
-# Display Crafty version
-#if [ -f "${APP_DIR}/VERSION" ]; then
-#    version=$(cat ${APP_DIR}/VERSION)
-#    bashio::log.info "===> CRAFTY-ADDON: Crafty Controller version: ${version}"
-#else
-#    bashio::log.info "===> CRAFTY-ADDON: Crafty Controller version: unknown (VERSION file not found)"
-#fi
-
-# Set up environment variables
-export PYTHONPATH="${APP_DIR}:${PYTHONPATH:-}"
-export PYTHONUNBUFFERED=1
-
-# Activate virtual environment if it exists
-if [ -f "${CRAFTY_DIR}/.venv/bin/activate" ]; then
-    bashio::log.info "===> Activating virtual environment..."
-    source "${CRAFTY_DIR}/.venv/bin/activate"
+# Verify config files exist in persistent storage
+if [ -f "${PERSISTENT_CONFIG_DIR}/version.json" ]; then
+    log_info "version.json exists in persistent storage:"
+    ls -l "${PERSISTENT_CONFIG_DIR}/version.json"
+    cat "${PERSISTENT_CONFIG_DIR}/version.json"
 else
-    bashio::log.warning "===> Virtual environment not found! Falling back to system Python (not recommended)."
+    log_error "version.json is missing from persistent storage!"
+    exit 1
 fi
 
-# Start Crafty Controller
-bashio::log.info "===> CRAFTY-ADDON: Executing: python3 ${CRAFTY_DIR}/main.py -i -d"
-cd ${CRAFTY_DIR} && exec python3 main.py -i -d
+# Get credentials
+get_config_value() {
+    local key="$1"
+    local default="${2:-}"
 
-bashio::log.warning "===> Crafty didn't start. Sleeping forever for debug."
-tail -f /dev/null
+    # Try environment variable first (HOME ASSISTANT ADDON CONVENTION)
+    env_var_name=$(echo "$key" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
+    env_value=$(printenv "CRAFTY_${env_var_name}" || true)
+
+    if [ -n "$env_value" ]; then
+        echo "$env_value"
+        return 0
+    fi
+
+    # Fallback to default
+    echo "$default"
+}
+
+# Get user credentials and settings
+USERNAME=$(get_config_value 'username' 'admin')
+PASSWORD=$(get_config_value 'password' 'craftyadmin')
+LOG_LEVEL=$(get_config_value 'log_level' 'info')
+
+log_info "Username and password: ${USERNAME}:${PASSWORD}"
+
+# Create default.json with user credentials if it doesn't exist
+if [ ! -f "${PERSISTENT_CONFIG_DIR}/default.json" ]; then
+    log_info "Creating default.json with provided or default credentials"
+    jq -n \
+        --arg username "$USERNAME" \
+        --arg password "$PASSWORD" \
+        '{
+            "login": {
+                "username": $username,
+                "password": $password
+            }
+        }' > "${PERSISTENT_CONFIG_DIR}/default.json"
+    chmod 664 "${PERSISTENT_CONFIG_DIR}/default.json"
+    chown -f crafty:root "${PERSISTENT_CONFIG_DIR}/default.json" 2>/dev/null || true
+else
+    log_info "Using existing default.json in persistent storage"
+fi
+
+log_info "Ensure crafty user has access to all directories"
+chown -R crafty:root "${CRAFTY_HOME}" 2>/dev/null || true
+chown -R crafty:root /data/crafty 2>/dev/null || true
+
+# Log level configuration
+declare -A LOG_LEVELS=(
+    ["trace"]=10
+    ["debug"]=20
+    ["info"]=30
+    ["notice"]=40
+    ["warning"]=50
+    ["error"]=60
+    ["fatal"]=70
+)
+LOG_LEVEL_NUM=${LOG_LEVELS[$LOG_LEVEL]:-30}
+
+# Create or update logging.json with correct version field
+if [ ! -f "${PERSISTENT_CONFIG_DIR}/logging.json" ]; then
+    log_info "Creating logging configuration with version field"
+    jq -n \
+        --arg level "$LOG_LEVEL" \
+        --arg level_num "$LOG_LEVEL_NUM" \
+        '{
+            "version": 1,
+            "log_level": $level,
+            "log_level_num": ($level_num | tonumber)
+        }' > "${PERSISTENT_CONFIG_DIR}/logging.json"
+    chmod 664 "${PERSISTENT_CONFIG_DIR}/logging.json"
+    chown -f crafty:root "${PERSISTENT_CONFIG_DIR}/logging.json" 2>/dev/null || true
+else
+    # If logging.json exists but doesn't have the version field, add it
+    if ! grep -q '"version"' "${PERSISTENT_CONFIG_DIR}/logging.json"; then
+        log_info "Adding version field to existing logging.json"
+        TMP_FILE=$(mktemp)
+        jq '. + {"version": 1}' "${PERSISTENT_CONFIG_DIR}/logging.json" > "$TMP_FILE"
+        mv "$TMP_FILE" "${PERSISTENT_CONFIG_DIR}/logging.json"
+        chmod 664 "${PERSISTENT_CONFIG_DIR}/logging.json"
+        chown -f crafty:root "${PERSISTENT_CONFIG_DIR}/logging.json" 2>/dev/null || true
+    fi
+fi
+
+# Setup SSL if enabled
+export USE_SSL="True"
+export SSL_KEY="${PERSISTENT_CONFIG_DIR}/ingress.key"
+export SSL_CERT="${PERSISTENT_CONFIG_DIR}/ingress.crt"
+
+# Generate self-signed certificate if it doesn't exist
+if [ ! -f "$SSL_KEY" ] || [ ! -f "$SSL_CERT" ]; then
+    log_info "Generating self-signed certificate for Crafty Ingress"
+    openssl req -x509 -nodes -days 3650 \
+        -newkey rsa:2048 \
+        -keyout "$SSL_KEY" \
+        -out "$SSL_CERT" \
+        -subj "/CN=CraftyController"
+
+    # Set appropriate permissions
+    chmod 640 "$SSL_KEY"
+    chmod 644 "$SSL_CERT"
+    chown crafty:root "$SSL_KEY" "$SSL_CERT"
+fi
+
+# Handle Ingress
+export CRAFTY_WEBSERVER_PORT=8443
+export CRAFTY_WEBSERVER_HOST="0.0.0.0"
+
+# Setup basic arguments
+args="-d -i"
+
+# Announce successful setup
+log_info "Crafty Controller is starting with args: $args"
+log_info "Login configured with username: $USERNAME"
+log_info "Log level set to: $LOG_LEVEL"
+
+# Run using our Python virtual environment without sudo
+log_info "Starting Crafty Controller..."
+exec sudo -u crafty bash -c "cd ${CRAFTY_HOME} && source ${CRAFTY_HOME}/venv/bin/activate && exec python3.9 main.py $args"
