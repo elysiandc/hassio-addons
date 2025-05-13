@@ -73,21 +73,15 @@ options:
   certfile: fullchain.pem
   keyfile: privkey.pem
   log_level: debug
-  #use_cdn: false
-  #use_uvloop: true
-  #dev_mode: false
 
 schema:
   username: str
-  password: "str(12,72)?" # Min 12 chars, max 72
+  password: str
   ssl: bool
   force_https: bool
   certfile: str
   keyfile: str
-  log_level: list(trace|debug|info|notice|warning|error|fatal)
-  #use_cdn: bool
-  #use_uvloop: bool
-  #dev_mode: bool
+  log_level: str
 
 environment:
   LOG_FORMAT: '"{LEVEL}: {MESSAGE}"'
