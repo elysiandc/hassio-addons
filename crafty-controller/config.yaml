@@ -4,7 +4,7 @@ version: "1.0.0"
 slug: crafty-controller
 description: A Home Assistant add-on for Crafty Controller, a Minecraft server management panel.
 url: "https://github.com/elysiandc/hassio-addons"
-webui: "https://[HOST]:[PORT:8443]"
+webui: "https://[HOST]:[PORT:8433]"
 panel_icon: mdi:server
 panel_title: Crafty
 
@@ -20,7 +20,7 @@ homeassistant_api: false
 
 # Enable Ingress
 ingress: true
-ingress_port: 8433
+ingress_port: 8443
 ingress_entry: "/panel/login"
 ingress_stream: true # Needed for HTTPS / WS connections in iframe
 
