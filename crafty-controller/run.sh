@@ -1,88 +1,176 @@
-#!/usr/bin/env bashio
+#!/bin/bash
+set -e
 
-# Color output functions from Crafty
+# Color output functions
 printf_info() {
-    printf "\033[36mWrapper | \033[32m%s\033[0m\n" "$1"
+    printf "\033[36mWrapper | $(date '+%Y-%m-%d %H:%M:%S') | \033[32m%s\033[0m\n" "$1"
 }
 
 printf_warn() {
-    printf "\033[36mWrapper | \033[33m%s\033[0m\n" "$1"
+    printf "\033[36mWrapper | $(date '+%Y-%m-%d %H:%M:%S') | \033[33m%s\033[0m\n" "$1"
 }
 
 printf_step() {
-    printf "\033[36mWrapper | \033[35m%s\033[0m\n" "$1"
+    printf "\033[36mWrapper | $(date '+%Y-%m-%d %H:%M:%S') | \033[35m%s\033[0m\n" "$1"
 }
 
-# Crafty's permission repair function
+printf_debug() {
+    printf "\033[36mWrapper | $(date '+%Y-%m-%d %H:%M:%S') | \033[34m%s\033[0m\n" "$1"
+}
+
 repair_permissions() {
     printf_step "📋 (1/3) Ensuring root group ownership..."
     find . ! -group root -print0 | xargs -0 -r chgrp root
-
     printf_step "📋 (2/3) Ensuring group read-write is present on files..."
     find . ! -perm g+rw -print0 | xargs -0 -r chmod g+rw
-
     printf_step "📋 (3/3) Ensuring sticky bit is present on directories..."
     find . -type d ! -perm g+s -print0 | xargs -0 -r chmod g+s
 }
 
-# Home Assistant specific configuration
-CRAFTY_HOME="${CRAFTY_HOME:-/crafty}"
-SHARE_DIR="/share/crafty"
-BACKUP_DIR="/share/crafty/backups"
-CONFIG_DIR="/data/crafty/config"
+# Initialize script
+printf_info "=== Starting Crafty Controller Addon $(date '+%Y-%m-%d %H:%M:%S') ==="
 
-# Ensure directories exist
-mkdir -p "${SHARE_DIR}" "${BACKUP_DIR}" "${CONFIG_DIR}"
-
-# Get Home Assistant config
-USERNAME=$(bashio::config 'username')
-PASSWORD=$(bashio::config 'password')
-LOG_LEVEL=$(bashio::config 'log_level')
+# Get config values from options.json
+printf_info "Loading configuration from Home Assistant..."
+OPTIONS_FILE="/data/options.json"
+USERNAME=$(jq -r '.username // "admin"' $OPTIONS_FILE)
+PASSWORD=$(jq -r '.password // empty' $OPTIONS_FILE)
+LOG_LEVEL=$(jq -r '.log_level // "info"' $OPTIONS_FILE)
 
 # Validate password complexity
-if [ ${#PASSWORD} -lt 12 ] || ! echo "$PASSWORD" | grep -q "[A-Za-z]" || ! echo "$PASSWORD" | grep -q "[0-9]"; then
-    printf_warn "🚫 Password must be at least 12 characters and contain letters and numbers"
+if [ -n "$PASSWORD" ] && [ ${#PASSWORD} -lt 8 ]; then
+    printf_warn "🚫 Password must be at least 8 characters"
     exit 1
 fi
 
-# Check if config exists and initialize if needed
-if [ ! "$(ls -A --ignore=.gitkeep ${CRAFTY_HOME}/app/config)" ]; then
-    printf_warn "🏗️ Config not found, pulling defaults..."
-    mkdir -p ${CRAFTY_HOME}/app/config/
-    cp -r ${CRAFTY_HOME}/app/config_original/* ${CRAFTY_HOME}/app/config/
+# Set default CRAFTY_HOME if not set
+: "${CRAFTY_HOME:=/crafty}"
+# Set location for persistent data
+: "${DATA_DIR:=/share/crafty}"
 
-    # Create/update default.json with credentials
-    jq -n \
-        --arg username "$USERNAME" \
-        --arg password "$PASSWORD" \
-        '{
-            "username": $username,
-            "password": $password
-        }' > "${CONFIG_DIR}/default.json"
-
-    chmod 600 "${CONFIG_DIR}/default.json"
-    chown crafty:root "${CONFIG_DIR}/default.json"
+# Create data directories if they don't exist
+if [ ! -d "${DATA_DIR}" ]; then
+    printf_info "Creating base data directory: ${DATA_DIR}"
+    mkdir -p "${DATA_DIR}"
 else
-    # Keep version file up to date with image
-    cp -f ${CRAFTY_HOME}/app/config_original/version.json ${CRAFTY_HOME}/app/config/version.json
+    printf_info "Data directory ${DATA_DIR} already exists"
 fi
 
-# Check and fix import directory permissions
-if [ "$(find ${SHARE_DIR}/import -type f ! -name '.gitkeep' 2>/dev/null)" ]; then
-    printf_warn "📋 Files present in import directory, checking/fixing permissions..."
-    printf_warn "⏳ Please be patient for larger servers..."
-    cd ${SHARE_DIR} && repair_permissions
-    printf_info "✅ Permissions Fixed! (This will happen every boot until /import is empty!)"
+# Create subdirectories only if they don't already exist
+for SUBDIR in "servers" "backups" "import" "logs"; do
+    if [ ! -d "${DATA_DIR}/${SUBDIR}" ]; then
+        printf_info "Creating ${DATA_DIR}/${SUBDIR} directory"
+        mkdir -p "${DATA_DIR}/${SUBDIR}"
+    else
+        printf_info "Directory ${DATA_DIR}/${SUBDIR} already exists"
+    fi
+done
+
+# Clean previous installation if exists
+printf_info "Cleaning previous Crafty installation if it exists..."
+rm -rf ${CRAFTY_HOME}/* ${CRAFTY_HOME}/.* 2>/dev/null || true
+
+# Clone into a temporary directory
+printf_info "Cloning latest Crafty Controller from repository..."
+TEMP_DIR=$(mktemp -d)
+git clone --depth=1 https://gitlab.com/crafty-controller/crafty-4.git "$TEMP_DIR"
+
+# Remove application files only (not touching persistent storage in /share/crafty)
+printf_info "Cleaning application directory..."
+rm -rf ${CRAFTY_HOME}/* ${CRAFTY_HOME}/.* 2>/dev/null || true
+
+# Selectively copy only necessary files
+printf_info "Installing required Crafty files (excluding unnecessary files)..."
+mkdir -p ${CRAFTY_HOME}
+
+# Copy only the essential files
+cp "$TEMP_DIR/main.py" "${CRAFTY_HOME}/"
+cp "$TEMP_DIR/requirements.txt" "${CRAFTY_HOME}/"
+cp -r "$TEMP_DIR/app" "${CRAFTY_HOME}/"
+cp "$TEMP_DIR/LICENSE" "${CRAFTY_HOME}/" 2>/dev/null || true
+
+# Clean up temp directory
+rm -rf "$TEMP_DIR"
+
+# Create symbolic links for persistent storage
+printf_info "Setting up data directory links..."
+for DIR in "servers" "backups" "import" "logs"; do
+    # Remove directory if it exists in CRAFTY_HOME
+    if [ -d "${CRAFTY_HOME}/${DIR}" ]; then
+        rm -rf "${CRAFTY_HOME}/${DIR}"
+    fi
+
+    # Create symbolic link to persistent storage
+    ln -sf "${DATA_DIR}/${DIR}" "${CRAFTY_HOME}/${DIR}"
+    printf_info "Created link: ${CRAFTY_HOME}/${DIR} -> ${DATA_DIR}/${DIR}"
+done
+
+# Setup Python virtual environment
+printf_info "Setting up Python virtual environment..."
+python3 -m venv "${CRAFTY_HOME}/venv"
+"${CRAFTY_HOME}/venv/bin/pip" install --upgrade pip wheel setuptools
+printf_info "Installing requirements..."
+"${CRAFTY_HOME}/venv/bin/pip" install -r "${CRAFTY_HOME}/requirements.txt" tzdata
+
+# Set up default.json with credentials
+printf_info "Setting up login configuration..."
+cat > "${CRAFTY_HOME}/app/config/default.json" << EOL
+{
+    "username": "${USERNAME}",
+    "password": "${PASSWORD}"
+}
+EOL
+
+# Setup SSL configuration
+printf_info "Setting up SSL configuration..."
+if [ -f "/ssl/fullchain.pem" ] && [ -f "/ssl/privkey.pem" ]; then
+    printf_info "Installing SSL certificates from Home Assistant..."
+    cp "/ssl/fullchain.pem" "${CRAFTY_HOME}/app/config/ingress.crt"
+    cp "/ssl/privkey.pem" "${CRAFTY_HOME}/app/config/ingress.key"
+    chmod 644 "${CRAFTY_HOME}/app/config/ingress.crt"
+    chmod 640 "${CRAFTY_HOME}/app/config/ingress.key"
+    chown crafty:root "${CRAFTY_HOME}/app/config/ingress.crt" "${CRAFTY_HOME}/app/config/ingress.key"
+else
+    # Set up self-signed certificate if needed
+    printf_info "Creating self-signed SSL certificate..."
+    openssl req -x509 -nodes -days 3650 \
+        -newkey rsa:2048 \
+        -keyout ${CRAFTY_HOME}/app/config/ingress.key \
+        -out ${CRAFTY_HOME}/app/config/ingress.crt \
+        -subj "/CN=CraftyController"
+    chmod 640 ${CRAFTY_HOME}/app/config/ingress.key
+    chmod 644 ${CRAFTY_HOME}/app/config/ingress.crt
+    printf_warn "SSL certificates not found in /ssl, using self-signed certificates"
 fi
 
-# Setup environment for Crafty
-export USE_SSL="True"
-export SSL_KEY="${SHARE_DIR}/ingress.key"
-export SSL_CERT="${SHARE_DIR}/ingress.crt"
-export CRAFTY_WEBSERVER_PORT=8433
-export CRAFTY_WEBSERVER_HOST="0.0.0.0"
+# Ensure proper permissions on all directories
+printf_info "Setting proper permissions on Crafty installation..."
+cd ${CRAFTY_HOME}
+repair_permissions
+
+# Debug output of directory contents
+printf_debug "Debug: Current directory=$(pwd)"
+printf_debug "Debug: CRAFTY_HOME=${CRAFTY_HOME}"
+printf_debug "Debug: Root Directory contents: ${CRAFTY_HOME}"
+ls -la ${CRAFTY_HOME}
+printf_debug "Debug: App Directory contents: ${CRAFTY_HOME}/app"
+ls -la ${CRAFTY_HOME}/app
+printf_debug "Debug: Config Directory contents: ${CRAFTY_HOME}/app/config"
+ls -la ${CRAFTY_HOME}/app/config
+printf_debug "Debug: DATA_DIR=${DATA_DIR}"
+printf_debug "Debug: Mapped share folder contents: ${DATA_DIR}"
+ls -la ${DATA_DIR}
+printf_debug "Debug: Imports folder contents: ${DATA_DIR}/import"
+ls -la ${DATA_DIR}/import
+printf_debug "Debug: Servers folder contents: ${DATA_DIR}/servers"
+ls -la ${DATA_DIR}/servers
+printf_debug "Debug: Backups folder contents: ${DATA_DIR}/backups"
+ls -la ${DATA_DIR}/backups
+printf_debug "Debug: Logs folder contents: ${DATA_DIR}/logs"
+ls -la ${DATA_DIR}/logs
 
 # Launch Crafty
 printf_info "🚀 Launching Crafty Controller..."
-cd ${CRAFTY_HOME}
-exec sudo -u crafty bash -c "source ${CRAFTY_HOME}/venv/bin/activate && exec python3.9 main.py -d -i"
+
+# Launch using Crafty's standard pattern
+exec su-exec crafty bash -c "cd ${CRAFTY_HOME} && source ${CRAFTY_HOME}/venv/bin/activate && exec python3 main.py -d -i"

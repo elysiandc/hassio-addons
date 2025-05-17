@@ -11,7 +11,7 @@
 
 Crafty Controller is a Minecraft Server Control Panel / Launcher. The purpose
 of Crafty Controller is to launch a Minecraft Server in the background and present
-a web interface for the server administrators to interact with their servers. C
+a web interface for the server administrators to interact with their servers.
 
 This add-on integrates Crafty Controller directly into your Home Assistant instance, providing a convenient way to manage your Minecraft servers alongside your smart home.
 

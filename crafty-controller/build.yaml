@@ -1,12 +1,9 @@
 ---
 build_from:
-  amd64: ghcr.io/home-assistant/amd64-base-ubuntu:20.04
+  amd64: ghcr.io/home-assistant/amd64-base-python:3.12-alpine3.21
 squash: false
 labels:
   org.opencontainers.image.title: "Home Assistant Add-on: Crafty Controller"
   org.opencontainers.image.description: "A Minecraft Server Management Panel for Home Assistant"
   org.opencontainers.image.source: "https://github.com/elysiandc/hassio-addons"
   org.opencontainers.image.licenses: "MIT"
-args:
-  CRAFTY_VERSION: "4.4.7"
-  BUILD_FROM: ghcr.io/home-assistant/amd64-base-ubuntu:20.04

@@ -15,7 +15,7 @@ Follow these steps to get the add-on installed on your system:
 2. Check the logs of the add-on to see if everything went well.
 3. Open the web UI for the add-on. You can access this either:
    - Through the Sidebar (when Ingress is enabled)
-   - Via the direct web UI URL: `http://your-ip:8000` (or with HTTPS if SSL is enabled)
+   - Via the direct web UI URL: `https://your-ip:8433` (or with HTTPS if SSL is enabled)
 
 ## Configuration
 
