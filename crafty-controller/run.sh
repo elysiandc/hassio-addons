@@ -140,6 +140,9 @@ cd ${CRAFTY_HOME}
 chown -R crafty:root ${CRAFTY_HOME}
 repair_permissions
 
+export CRAFTY_WEBSERVER_PORT=8433
+export CRAFTY_WEBSERVER_HOST="0.0.0.0"
+
 # Debug output of directory contents
 printf_debug "Debug: Current directory=$(pwd)"
 printf_debug "Debug: CRAFTY_HOME=${CRAFTY_HOME}"

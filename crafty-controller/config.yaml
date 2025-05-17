@@ -21,8 +21,8 @@ backup: cold
 
 # Enable Ingress
 ingress: true
-ingress_port: 8433
-ingress_entry: "/panel/login"
+ingress_port: 8443
+ingress_entry: "/"
 ingress_stream: true # Needed for HTTPS / WS connections in iframe
 
 # Required for Docker access, server port ranges, and file persistence
