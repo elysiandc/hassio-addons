@@ -14,7 +14,7 @@ startup: application
 boot: auto
 init: false
 s6-overlay: false
-#host_network: true
+host_network: true
 homeassistant_api: false
 #environment: { "PYTHONUNBUFFERED": "1" }
 backup: cold

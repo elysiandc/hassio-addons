@@ -125,27 +125,19 @@ EOL
 printf_info "Setting up SSL configuration..."
 if [ -f "/ssl/fullchain.pem" ] && [ -f "/ssl/privkey.pem" ]; then
     printf_info "Installing SSL certificates from Home Assistant..."
-    cp "/ssl/fullchain.pem" "${CRAFTY_HOME}/app/config/ingress.crt"
-    cp "/ssl/privkey.pem" "${CRAFTY_HOME}/app/config/ingress.key"
-    chmod 644 "${CRAFTY_HOME}/app/config/ingress.crt"
-    chmod 640 "${CRAFTY_HOME}/app/config/ingress.key"
-    chown crafty:root "${CRAFTY_HOME}/app/config/ingress.crt" "${CRAFTY_HOME}/app/config/ingress.key"
+    cp "/ssl/fullchain.pem" "${CRAFTY_HOME}/app/config/web/certs/commander.cert.pem"
+    cp "/ssl/privkey.pem" "${CRAFTY_HOME}/app/config/web/certs/commander.key.pem"
+    chmod 644 "${CRAFTY_HOME}/app/config/web/certs/commander.cert.pem"
+    chmod 640 "${CRAFTY_HOME}/app/config/web/certs/commander.key.pem"
+    chown crafty:root "${CRAFTY_HOME}/app/config/web/certs/commander.cert.pem" "${CRAFTY_HOME}/app/config/web/certs/commander.key.pem"
 else
-    # Set up self-signed certificate if needed
-    printf_info "Creating self-signed SSL certificate..."
-    openssl req -x509 -nodes -days 3650 \
-        -newkey rsa:2048 \
-        -keyout ${CRAFTY_HOME}/app/config/ingress.key \
-        -out ${CRAFTY_HOME}/app/config/ingress.crt \
-        -subj "/CN=CraftyController"
-    chmod 640 ${CRAFTY_HOME}/app/config/ingress.key
-    chmod 644 ${CRAFTY_HOME}/app/config/ingress.crt
-    printf_warn "SSL certificates not found in /ssl, using self-signed certificates"
+    printf_warn "SSL certificates not found in /ssl, using Crafty's own self-signed certificates"
 fi
 
 # Ensure proper permissions on all directories
 printf_info "Setting proper permissions on Crafty installation..."
 cd ${CRAFTY_HOME}
+chown -R crafty:root ${CRAFTY_HOME}
 repair_permissions
 
 # Debug output of directory contents
