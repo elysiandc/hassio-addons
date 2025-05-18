@@ -68,7 +68,7 @@ done
 
 # Clean previous installation if exists
 printf_info "Cleaning previous Crafty installation if it exists..."
-rm -rf ${CRAFTY_HOME}/* ${CRAFTY_HOME}/.* 2>/dev/null || true
+rm -rf "${CRAFTY_HOME}/*" "${CRAFTY_HOME}/.*" 2>/dev/null || true
 
 # Clone into a temporary directory
 printf_info "Cloning latest Crafty Controller from repository..."
@@ -77,11 +77,11 @@ git clone --depth=1 https://gitlab.com/crafty-controller/crafty-4.git "$TEMP_DIR
 
 # Remove application files only (not touching persistent storage in /share/crafty)
 printf_info "Cleaning application directory..."
-rm -rf ${CRAFTY_HOME}/* ${CRAFTY_HOME}/.* 2>/dev/null || true
+rm -rf "${CRAFTY_HOME}/*" "${CRAFTY_HOME}/.*" 2>/dev/null || true
 
 # Selectively copy only necessary files
 printf_info "Installing required Crafty files (excluding unnecessary files)..."
-mkdir -p ${CRAFTY_HOME}
+mkdir -p "${CRAFTY_HOME}"
 
 # Copy only the essential files
 cp "$TEMP_DIR/main.py" "${CRAFTY_HOME}/"
@@ -136,33 +136,33 @@ fi
 
 # Ensure proper permissions on all directories
 printf_info "Setting proper permissions on Crafty installation..."
-cd ${CRAFTY_HOME}
-chown -R crafty:root ${CRAFTY_HOME}
+cd "${CRAFTY_HOME}"
+chown -R crafty:root "${CRAFTY_HOME}"
 repair_permissions
 
 export CRAFTY_WEBSERVER_PORT=8433
 export CRAFTY_WEBSERVER_HOST="0.0.0.0"
 
 # Debug output of directory contents
-printf_debug "Debug: Current directory=$(pwd)"
-printf_debug "Debug: CRAFTY_HOME=${CRAFTY_HOME}"
-printf_debug "Debug: Root Directory contents: ${CRAFTY_HOME}"
-ls -la ${CRAFTY_HOME}
-printf_debug "Debug: App Directory contents: ${CRAFTY_HOME}/app"
-ls -la ${CRAFTY_HOME}/app
-printf_debug "Debug: Config Directory contents: ${CRAFTY_HOME}/app/config"
-ls -la ${CRAFTY_HOME}/app/config
-printf_debug "Debug: DATA_DIR=${DATA_DIR}"
-printf_debug "Debug: Mapped share folder contents: ${DATA_DIR}"
-ls -la ${DATA_DIR}
-printf_debug "Debug: Imports folder contents: ${DATA_DIR}/import"
-ls -la ${DATA_DIR}/import
-printf_debug "Debug: Servers folder contents: ${DATA_DIR}/servers"
-ls -la ${DATA_DIR}/servers
-printf_debug "Debug: Backups folder contents: ${DATA_DIR}/backups"
-ls -la ${DATA_DIR}/backups
-printf_debug "Debug: Logs folder contents: ${DATA_DIR}/logs"
-ls -la ${DATA_DIR}/logs
+# printf_debug "Debug: Current directory=$(pwd)"
+# printf_debug "Debug: CRAFTY_HOME=${CRAFTY_HOME}"
+# printf_debug "Debug: Root Directory contents: ${CRAFTY_HOME}"
+# ls -la ${CRAFTY_HOME}
+# printf_debug "Debug: App Directory contents: ${CRAFTY_HOME}/app"
+# ls -la ${CRAFTY_HOME}/app
+# printf_debug "Debug: Config Directory contents: ${CRAFTY_HOME}/app/config"
+# ls -la ${CRAFTY_HOME}/app/config
+# printf_debug "Debug: DATA_DIR=${DATA_DIR}"
+# printf_debug "Debug: Mapped share folder contents: ${DATA_DIR}"
+# ls -la ${DATA_DIR}
+# printf_debug "Debug: Imports folder contents: ${DATA_DIR}/import"
+# ls -la ${DATA_DIR}/import
+# printf_debug "Debug: Servers folder contents: ${DATA_DIR}/servers"
+# ls -la ${DATA_DIR}/servers
+# printf_debug "Debug: Backups folder contents: ${DATA_DIR}/backups"
+# ls -la ${DATA_DIR}/backups
+# printf_debug "Debug: Logs folder contents: ${DATA_DIR}/logs"
+# ls -la ${DATA_DIR}/logs
 
 # Launch Crafty
 printf_info "🚀 Launching Crafty Controller..."
