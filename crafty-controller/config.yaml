@@ -39,8 +39,8 @@ ports:
   19135/udp: 19135 #Additional Geyser/Floodgate Port for Bedrock Clients
   19136/udp: 19136 #Additional Geyser/Floodgate Port for Bedrock Clients
   19137/udp: 19137 #Additional Geyser/Floodgate Port for Bedrock Clients
-  19137/udp: 19138 #Additional Geyser/Floodgate Port for Bedrock Clients
-  19137/udp: 19138 #Additional Geyser/Floodgate Port for Bedrock Clients
+  19138/udp: 19138 #Additional Geyser/Floodgate Port for Bedrock Clients
+  19139/udp: 19139 #Additional Geyser/Floodgate Port for Bedrock Clients
   25500/tcp: 25500
   25565/tcp: 25565
   25566/tcp: 25566
@@ -57,7 +57,7 @@ ports_description:
   19134/udp: 19134 "Geyser/Floodgate Port for Bedrock Clients"
   19135/udp: 19135 "Geyser/Floodgate Port for Bedrock Clients"
   19136/udp: 19136 "Geyser/Floodgate Port for Bedrock Clients"
-  19136/udp: 19137 "Geyser/Floodgate Port for Bedrock Clients"
+  19137/udp: 19137 "Geyser/Floodgate Port for Bedrock Clients"
   19138/udp: 19138 "Geyser/Floodgate Port for Bedrock Clients"
   19139/udp: 19139 "Geyser/Floodgate Port for Bedrock Clients"
   25500/tcp: 25500 "Extra port"
