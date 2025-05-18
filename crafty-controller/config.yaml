@@ -33,8 +33,9 @@ ingress_stream: true # Needed for HTTPS / WS connections in iframe
 ports:
   8443/tcp: 8433 # HTTPS WebUI
   8123/tcp: 8022 # Dynmap (optional)
-  8023/tcp: 8023 # BlueMap (optional)
+  8100/tcp: 8023 # BlueMap (optional)
   19132/udp: 19132 # Bedrock
+  19133/udp: 19133 # Additional Bedrock
   19134/udp: 19134 #Geyser/Floodgate Port for Bedrock Clients
   19135/udp: 19135 #Additional Geyser/Floodgate Port for Bedrock Clients
   19136/udp: 19136 #Additional Geyser/Floodgate Port for Bedrock Clients
@@ -52,8 +53,9 @@ ports:
 ports_description:
   8443/tcp: 8433 "HTTPS Web interface"
   8123/tcp: 8022 "Dynmap (optional)"
-  8023/tcp: 8023 "BlueMap (optional)"
+  8100/tcp: 8023 "BlueMap (optional)"
   19132/udp: 19132 "Bedrock"
+  19133/udp: 19133 "Additional Bedrock"
   19134/udp: 19134 "Geyser/Floodgate Port for Bedrock Clients"
   19135/udp: 19135 "Geyser/Floodgate Port for Bedrock Clients"
   19136/udp: 19136 "Geyser/Floodgate Port for Bedrock Clients"
