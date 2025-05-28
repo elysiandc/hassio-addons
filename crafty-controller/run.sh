@@ -35,41 +35,87 @@ safe_db_copy() {
 
     if [ -d "$src" ]; then
         printf_info "Handling database files${description}"
+        printf_debug "Source directory: ${src}"
+        printf_debug "Destination directory: ${dst}"
+
+        # List contents of source directory
+        printf_debug "Source directory contents:"
+        ls -la "${src}" || printf_warn "Could not list source directory"
 
         # Ensure destination exists
         mkdir -p "$dst"
+        printf_debug "Created destination directory: ${dst}"
 
         # Check if any database files are locked/in use
-        local locked_files=$(lsof "$src"/* 2>/dev/null | awk '{print $9}' | sort -u)
+        printf_debug "Checking for locked database files..."
+        local locked_files=$(lsof "${src}"/* 2>/dev/null | awk '{print $9}' | sort -u)
 
-        # Copy all files first
-        cp -r "$src/"* "$dst/" 2>/dev/null || true
-
-        # If there were locked files, handle them specially
         if [ -n "$locked_files" ]; then
-            printf_warn "Some database files are in use, marking for sync on shutdown"
-            echo "$locked_files" > "${DATA_DIR}/.db_sync_needed"
+            printf_warn "Found locked database files:"
+            echo "$locked_files"
+        else
+            printf_debug "No locked database files found"
         fi
+
+        # First try copying with cp -r
+        printf_debug "Attempting to copy files with cp -r..."
+        if ! cp -rv "${src}/"* "${dst}/" 2>/dev/null; then
+            printf_warn "Initial copy failed, trying individual file copy..."
+
+            # Try copying files individually
+            find "${src}" -type f -print0 | while IFS= read -r -d '' file; do
+                base_name=$(basename "$file")
+                printf_debug "Copying file: ${base_name}"
+
+                if ! cp -v "$file" "${dst}/${base_name}" 2>/dev/null; then
+                    printf_warn "Failed to copy: ${base_name}"
+                    # If the file is locked, add it to sync list
+                    if lsof "$file" >/dev/null 2>&1; then
+                        printf_warn "File is locked, marking for sync on shutdown: ${base_name}"
+                        echo "$file" >> "${DATA_DIR}/.db_sync_needed"
+                    fi
+                fi
+            done
+        fi
+
+        # Verify the copy
+        printf_debug "Verifying copied files..."
+        printf_debug "Destination directory contents:"
+        ls -la "${dst}" || printf_warn "Could not list destination directory"
+    else
+        printf_warn "Source directory does not exist: ${src}"
     fi
 }
 
 # Function to sync database files on shutdown
 sync_db_files() {
-    printf_info "Syncing database files to persistent storage..."
+    if [ -f "${DATA_DIR}/.db_sync_needed" ]; then
+        printf_info "Syncing database files to persistent storage..."
 
-    # Ensure the database directory exists in persistent storage
-    mkdir -p "${DATA_DIR}/config/db"
+        # Ensure the database directory exists in persistent storage
+        mkdir -p "${DATA_DIR}/config/db"
 
-    # Small delay to allow any pending writes to complete
-    sleep 2
+        # Small delay to allow any pending writes to complete
+        sleep 2
 
-    # Copy all database files to persistent storage
-    if [ -d "${CRAFTY_HOME}/app/config/db" ]; then
-        cp -r "${CRAFTY_HOME}/app/config/db/"* "${DATA_DIR}/config/db/" 2>/dev/null || true
+        # Read the list of files that need syncing
+        while IFS= read -r file; do
+            printf_debug "Syncing file: ${file}"
+            base_name=$(basename "$file")
+            if [ -f "$file" ]; then
+                if cp -v "$file" "${DATA_DIR}/config/db/${base_name}" 2>/dev/null; then
+                    printf_info "Successfully synced: ${base_name}"
+                else
+                    printf_warn "Failed to sync: ${base_name}"
+                fi
+            else
+                printf_warn "File no longer exists: ${file}"
+            fi
+        done < "${DATA_DIR}/.db_sync_needed"
+
+        # Remove the sync needed flag
+        rm -f "${DATA_DIR}/.db_sync_needed"
     fi
-
-    # Remove the sync needed flag
-    rm -f "${DATA_DIR}/.db_sync_needed"
 }
 
 # Function to handle credentials
@@ -221,7 +267,10 @@ else
     mkdir -p "${CRAFTY_HOME}/app/config/db"
 
     # First copy everything except the db directory from persistent storage
-    find "${DATA_DIR}/config" -mindepth 1 -maxdepth 1 ! -name "db" -exec cp -r {} "${CRAFTY_HOME}/app/config/" \;
+    printf_debug "Copying non-database files from persistent storage..."
+    if ! find "${DATA_DIR}/config" -mindepth 1 -maxdepth 1 ! -name "db" -exec cp -rv {} "${CRAFTY_HOME}/app/config/" \;; then
+        printf_warn "Some files failed to copy from persistent storage"
+    fi
 
     # Now handle database files specially
     safe_db_copy "${DATA_DIR}/config/db" "${CRAFTY_HOME}/app/config/db" ": restoring from persistent storage"
