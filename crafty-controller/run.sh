@@ -396,27 +396,27 @@ case "${LOG_LEVEL}" in
         ;;
     "info")
         PYTHON_LOG_LEVEL="INFO"
-        CRAFTY_ARGS="-i"
+        CRAFTY_ARGS="-d -i"
         ;;
     "notice")
         PYTHON_LOG_LEVEL="INFO"
-        CRAFTY_ARGS="-i"
+        CRAFTY_ARGS="-d -i"
         ;;
     "warning")
         PYTHON_LOG_LEVEL="WARNING"
-        CRAFTY_ARGS=""
+        CRAFTY_ARGS="-d"
         ;;
     "error")
         PYTHON_LOG_LEVEL="ERROR"
-        CRAFTY_ARGS=""
+        CRAFTY_ARGS="-d"
         ;;
     "fatal")
         PYTHON_LOG_LEVEL="CRITICAL"
-        CRAFTY_ARGS=""
+        CRAFTY_ARGS="-d"
         ;;
     *)
         PYTHON_LOG_LEVEL="INFO"
-        CRAFTY_ARGS="-i"
+        CRAFTY_ARGS="-d -i"
         ;;
 esac
 
@@ -595,5 +595,4 @@ PERIODIC_SYNC_PID=$!
 printf_info "🚀 Launching Crafty Controller with log level: ${LOG_LEVEL} (Python: ${PYTHON_LOG_LEVEL})"
 
 # Using the official Crafty entrypoint pattern but with our parameters
-# Add --no-prompt to run in non-interactive mode
-exec sudo -u crafty bash -c "cd ${CRAFTY_HOME} && source ${CRAFTY_HOME}/.venv/bin/activate && exec python3 main.py ${CRAFTY_ARGS} --no-prompt"
+exec sudo -u crafty bash -c "cd ${CRAFTY_HOME} && source ${CRAFTY_HOME}/.venv/bin/activate && exec python3 main.py ${CRAFTY_ARGS}"

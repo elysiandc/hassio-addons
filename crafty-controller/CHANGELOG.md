@@ -25,3 +25,7 @@
 ## 1.0.6
 
 - Proper shutdown/restart to fix EOF/reentrant call errors
+
+## 1.0.7
+
+- Daemon mode activate!

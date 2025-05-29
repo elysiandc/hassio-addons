@@ -1,6 +1,6 @@
 # Created with assistance from chatGPT and Claude
 name: Crafty Controller
-version: "1.0.6"
+version: "1.0.7"
 slug: crafty-controller
 description: A Home Assistant add-on for Crafty Controller, a Minecraft server management panel.
 url: "https://github.com/elysiandc/hassio-addons"
