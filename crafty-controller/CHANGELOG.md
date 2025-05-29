@@ -22,6 +22,6 @@
 
 - Yet more database backup and sync fixes/improvements
 
-## 1.0.5
+## 1.0.6
 
 - Proper shutdown/restart to fix EOF/reentrant call errors
