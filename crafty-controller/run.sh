@@ -218,17 +218,23 @@ safe_db_copy() {
             printf_info "Destination directory contents:"
             ls -lah "${dst}" || printf_warn "Could not list destination directory"
 
-            # Verify file counts
-            SRC_COUNT=$(find "${src}" -maxdepth 1 -name "crafty.sqlite*" -type f | wc -l)
+            # Count files before listing them (prevents race conditions)
             DST_COUNT=$(find "${dst}" -maxdepth 1 -name "crafty.sqlite*" -type f | wc -l)
-            printf_info "Source files: ${SRC_COUNT}, Destination files: ${DST_COUNT}"
 
-            if [ "$SRC_COUNT" != "$DST_COUNT" ]; then
-                printf_warn "File count mismatch! Source has ${SRC_COUNT} files, destination has ${DST_COUNT} files"
-                printf_info "Source files:"
-                find "${src}" -maxdepth 1 -name "crafty.sqlite*" -type f -ls
-                printf_info "Destination files:"
+            # After checkpoint, we expect only the main DB file in source
+            if [ "$DST_COUNT" -eq 3 ] && [ -f "${dst}/crafty.sqlite" ] && \
+               [ -f "${dst}/crafty.sqlite-wal" ] && [ -f "${dst}/crafty.sqlite-shm" ]; then
+                printf_info "Verification successful: All database files present in destination"
+                printf_debug "Destination files:"
                 find "${dst}" -maxdepth 1 -name "crafty.sqlite*" -type f -ls
+            else
+                printf_warn "Unexpected file count in destination (expected 3, got ${DST_COUNT})"
+                printf_info "Source files (expect only main DB after checkpoint):"
+                find "${src}" -maxdepth 1 -name "crafty.sqlite*" -type f -ls
+                printf_info "Destination files (should have all 3 files):"
+                find "${dst}" -maxdepth 1 -name "crafty.sqlite*" -type f -ls
+                # Don't return error if we at least have the main DB
+                [ ! -f "${dst}/crafty.sqlite" ] && return 1
             fi
 
             # Force a final sync
@@ -322,6 +328,49 @@ EOL
     fi
 }
 
+# Function to handle shutdown gracefully
+shutdown_crafty() {
+    local pid=$1
+    printf_info "Initiating graceful shutdown..."
+
+    # First try graceful shutdown through stdin if process exists
+    if [ -n "$pid" ] && kill -0 $pid 2>/dev/null; then
+        printf_debug "Sending stop command to Crafty..."
+        echo "stop" > /tmp/crafty_cmd
+        # Give it time to process the stop command
+        sleep 5
+    fi
+
+    # Sync database files
+    sync_db_files
+
+    # Kill any remaining processes
+    if [ -n "$pid" ] && kill -0 $pid 2>/dev/null; then
+        printf_warn "Crafty still running, sending SIGTERM..."
+        kill -TERM $pid 2>/dev/null
+
+        # Wait up to 30 seconds for process to end
+        for i in {1..30}; do
+            if ! kill -0 $pid 2>/dev/null; then
+                break
+            fi
+            sleep 1
+        done
+
+        # If still running, force kill
+        if kill -0 $pid 2>/dev/null; then
+            printf_warn "Force stopping Crafty..."
+            kill -9 $pid 2>/dev/null
+        fi
+    fi
+
+    # Kill background tasks
+    kill $PERIODIC_SYNC_PID 2>/dev/null
+
+    printf_info "Shutdown complete"
+    exit 0
+}
+
 # Set up trap to handle shutdown
 trap 'sync_db_files; kill $PERIODIC_SYNC_PID 2>/dev/null' EXIT
 
@@ -374,6 +423,11 @@ esac
 # Export log level for Python
 export PYTHONUNBUFFERED=1
 export LOG_LEVEL="${PYTHON_LOG_LEVEL}"
+
+# SQLite optimizations
+export SQLITE_OPEN_FLAGS="SQLITE_OPEN_READWRITE|SQLITE_OPEN_CREATE|SQLITE_OPEN_WAL|SQLITE_OPEN_FULLMUTEX"
+export SQLITE_TIMEOUT=60000
+export SQLITE_BUSY_TIMEOUT=60000
 
 # Validate password complexity
 if [ -n "$PASSWORD" ] && [ ${#PASSWORD} -lt 8 ]; then
@@ -541,4 +595,5 @@ PERIODIC_SYNC_PID=$!
 printf_info "🚀 Launching Crafty Controller with log level: ${LOG_LEVEL} (Python: ${PYTHON_LOG_LEVEL})"
 
 # Using the official Crafty entrypoint pattern but with our parameters
-exec sudo -u crafty bash -c "cd ${CRAFTY_HOME} && source ${CRAFTY_HOME}/.venv/bin/activate && exec python3 main.py ${CRAFTY_ARGS}"
+# Add --no-prompt to run in non-interactive mode
+exec sudo -u crafty bash -c "cd ${CRAFTY_HOME} && source ${CRAFTY_HOME}/.venv/bin/activate && exec python3 main.py ${CRAFTY_ARGS} --no-prompt"

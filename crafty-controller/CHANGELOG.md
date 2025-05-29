@@ -17,3 +17,11 @@
 ## 1.0.4
 
 - Yet more database backup and sync fixes/improvements
+
+## 1.0.5
+
+- Yet more database backup and sync fixes/improvements
+
+## 1.0.5
+
+- Proper shutdown/restart to fix EOF/reentrant call errors
