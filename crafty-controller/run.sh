@@ -120,14 +120,51 @@ safe_db_copy() {
             printf_info "Database found, checking WAL mode and size..."
             printf_debug "Main DB size: $(stat -c '%s' "${src}/crafty.sqlite") bytes"
 
-            if [ -f "${src}/crafty.sqlite-wal" ]; then
-                printf_debug "WAL file exists, size: $(stat -c '%s' "${src}/crafty.sqlite-wal") bytes"
-            fi
+            # First copy WAL and SHM files if they exist, BEFORE checkpointing
+            for file in crafty.sqlite-wal crafty.sqlite-shm; do
+                if [ -f "${src}/${file}" ]; then
+                    printf_debug "${file} exists, size: $(stat -c '%s' "${src}/${file}") bytes"
+                    printf_info "Copying ${file} before checkpoint..."
 
-            if [ -f "${src}/crafty.sqlite-shm" ]; then
-                printf_debug "SHM file exists, size: $(stat -c '%s' "${src}/crafty.sqlite-shm") bytes"
-            fi
+                    if ! cp --preserve=all "${src}/${file}" "${dst}/${file}.new"; then
+                        printf_warn "Failed to copy ${file} from ${src}/${file} to ${dst}/${file}.new"
+                        rm -f "${dst}/${file}.new"
+                        continue
+                    fi
 
+                    # Verify the temporary file
+                    if [ -f "${dst}/${file}.new" ]; then
+                        printf_debug "Temporary file created, size: $(stat -c '%s' "${dst}/${file}.new") bytes"
+
+                        # Compare source and destination sizes
+                        SRC_SIZE=$(stat -c '%s' "${src}/${file}")
+                        DST_SIZE=$(stat -c '%s' "${dst}/${file}.new")
+                        if [ "$SRC_SIZE" != "$DST_SIZE" ]; then
+                            printf_warn "Size mismatch for ${file}: source=${SRC_SIZE}, dest=${DST_SIZE}"
+                            rm -f "${dst}/${file}.new"
+                            continue
+                        fi
+
+                        # Atomic move
+                        if mv "${dst}/${file}.new" "${dst}/${file}"; then
+                            printf_debug "Atomic move successful for ${file}"
+                            # Set permissions
+                            chown crafty:root "${dst}/${file}"
+                            chmod 664 "${dst}/${file}"
+                            printf_debug "Set permissions on ${file}: $(stat -c '%a' "${dst}/${file}")"
+                        else
+                            printf_warn "Atomic move failed for ${file}"
+                            rm -f "${dst}/${file}.new"
+                        fi
+                    else
+                        printf_warn "Temporary file creation failed for ${file}"
+                    fi
+                else
+                    printf_debug "Source file not found: ${src}/${file}"
+                fi
+            done
+
+            # Now do the checkpoint after WAL/SHM files are copied
             printf_info "Forcing SQLite checkpoint..."
             if command -v sqlite3 >/dev/null 2>&1; then
                 CHECKPOINT_RESULT=$(sqlite3 "${src}/crafty.sqlite" "PRAGMA wal_checkpoint(FULL);" 2>&1)
@@ -138,43 +175,43 @@ safe_db_copy() {
                 printf_warn "sqlite3 command not found, skipping checkpoint"
             fi
 
-            # Copy all database files atomically using temporary files
-            printf_info "Starting atomic copy of all database files..."
-            for file in crafty.sqlite crafty.sqlite-wal crafty.sqlite-shm; do
-                if [ -f "${src}/${file}" ]; then
-                    printf_info "Copying ${file}..."
-                    printf_debug "Source ${file} size: $(stat -c '%s' "${src}/${file}") bytes"
+            # Now copy the main database file
+            printf_info "Copying main database file..."
+            if ! cp --preserve=all "${src}/crafty.sqlite" "${dst}/crafty.sqlite.new"; then
+                printf_warn "Failed to copy crafty.sqlite from ${src}/crafty.sqlite to ${dst}/crafty.sqlite.new"
+                rm -f "${dst}/crafty.sqlite.new"
+                return 1
+            fi
 
-                    if ! cp --preserve=all "${src}/${file}" "${dst}/${file}.new"; then
-                        printf_warn "Failed to copy ${file}"
-                        rm -f "${dst}/${file}.new"
-                        continue
-                    fi
+            # Verify the temporary file
+            if [ -f "${dst}/crafty.sqlite.new" ]; then
+                printf_debug "Temporary file created, size: $(stat -c '%s' "${dst}/crafty.sqlite.new") bytes"
 
-                    # Verify the temporary file
-                    if [ -f "${dst}/${file}.new" ]; then
-                        printf_debug "Temporary file created, size: $(stat -c '%s' "${dst}/${file}.new") bytes"
-                    else
-                        printf_warn "Temporary file creation failed for ${file}"
-                        continue
-                    fi
-
-                    # Atomic move
-                    if mv "${dst}/${file}.new" "${dst}/${file}"; then
-                        printf_debug "Atomic move successful for ${file}"
-                    else
-                        printf_warn "Atomic move failed for ${file}"
-                        continue
-                    fi
-
-                    # Set permissions
-                    chown crafty:root "${dst}/${file}"
-                    chmod 664 "${dst}/${file}"
-                    printf_debug "Set permissions on ${file}: $(stat -c '%a' "${dst}/${file}")"
-                else
-                    printf_debug "Source file ${file} does not exist, skipping"
+                # Compare source and destination sizes
+                SRC_SIZE=$(stat -c '%s' "${src}/crafty.sqlite")
+                DST_SIZE=$(stat -c '%s' "${dst}/crafty.sqlite.new")
+                if [ "$SRC_SIZE" != "$DST_SIZE" ]; then
+                    printf_warn "Size mismatch for crafty.sqlite: source=${SRC_SIZE}, dest=${DST_SIZE}"
+                    rm -f "${dst}/crafty.sqlite.new"
+                    return 1
                 fi
-            done
+
+                # Atomic move
+                if mv "${dst}/crafty.sqlite.new" "${dst}/crafty.sqlite"; then
+                    printf_debug "Atomic move successful for crafty.sqlite"
+                    # Set permissions
+                    chown crafty:root "${dst}/crafty.sqlite"
+                    chmod 664 "${dst}/crafty.sqlite"
+                    printf_debug "Set permissions on crafty.sqlite: $(stat -c '%a' "${dst}/crafty.sqlite")"
+                else
+                    printf_warn "Atomic move failed for crafty.sqlite"
+                    rm -f "${dst}/crafty.sqlite.new"
+                    return 1
+                fi
+            else
+                printf_warn "Temporary file creation failed for crafty.sqlite"
+                return 1
+            fi
 
             # Verify the final copy
             printf_info "=== Final verification of copied files ==="
@@ -182,21 +219,32 @@ safe_db_copy() {
             ls -lah "${dst}" || printf_warn "Could not list destination directory"
 
             # Verify file counts
-            SRC_COUNT=$(ls -1 "${src}/crafty.sqlite"* 2>/dev/null | wc -l)
-            DST_COUNT=$(ls -1 "${dst}/crafty.sqlite"* 2>/dev/null | wc -l)
+            SRC_COUNT=$(find "${src}" -maxdepth 1 -name "crafty.sqlite*" -type f | wc -l)
+            DST_COUNT=$(find "${dst}" -maxdepth 1 -name "crafty.sqlite*" -type f | wc -l)
             printf_info "Source files: ${SRC_COUNT}, Destination files: ${DST_COUNT}"
+
+            if [ "$SRC_COUNT" != "$DST_COUNT" ]; then
+                printf_warn "File count mismatch! Source has ${SRC_COUNT} files, destination has ${DST_COUNT} files"
+                printf_info "Source files:"
+                find "${src}" -maxdepth 1 -name "crafty.sqlite*" -type f -ls
+                printf_info "Destination files:"
+                find "${dst}" -maxdepth 1 -name "crafty.sqlite*" -type f -ls
+            fi
 
             # Force a final sync
             sync
             printf_info "Final sync completed"
         else
             printf_warn "Main database file not found in source directory"
+            return 1
         fi
     else
         printf_warn "Source directory does not exist: ${src}"
+        return 1
     fi
 
     printf_info "=== Database copy operation completed ==="
+    return 0
 }
 
 # Function to sync database files on shutdown
