@@ -100,85 +100,103 @@ safe_db_copy() {
     local description="$3"
 
     if [ -d "$src" ]; then
-        printf_info "Handling database files${description}"
-        printf_debug "Source directory: ${src}"
-        printf_debug "Destination directory: ${dst}"
+        printf_info "=== Starting database copy operation${description} ==="
+        printf_info "Source: ${src}"
+        printf_info "Destination: ${dst}"
 
-        # List contents of source directory
-        printf_debug "Source directory contents:"
-        ls -la "${src}" || printf_warn "Could not list source directory"
+        # List and log source directory contents with sizes
+        printf_info "Source directory contents before copy:"
+        ls -lah "${src}" || printf_warn "Could not list source directory"
 
-        # Ensure destination exists
+        # Ensure destination exists with proper permissions
+        printf_debug "Setting up destination directory..."
         mkdir -p "$dst"
-        printf_debug "Created destination directory: ${dst}"
+        chmod 2775 "$dst"  # Sets SGID bit and group write permission
+        chown crafty:root "$dst"
+        printf_info "Destination directory prepared with permissions $(stat -c '%a' "$dst")"
 
-        # Copy files with specific handling for SQLite files
-        printf_debug "Copying database files..."
-
-        # First, ensure SQLite is in a consistent state by using sqlite3 to force a checkpoint
+        # First ensure SQLite is in a consistent state
         if [ -f "${src}/crafty.sqlite" ]; then
-            printf_debug "Forcing SQLite checkpoint..."
+            printf_info "Database found, checking WAL mode and size..."
+            printf_debug "Main DB size: $(stat -c '%s' "${src}/crafty.sqlite") bytes"
+
+            if [ -f "${src}/crafty.sqlite-wal" ]; then
+                printf_debug "WAL file exists, size: $(stat -c '%s' "${src}/crafty.sqlite-wal") bytes"
+            fi
+
+            if [ -f "${src}/crafty.sqlite-shm" ]; then
+                printf_debug "SHM file exists, size: $(stat -c '%s' "${src}/crafty.sqlite-shm") bytes"
+            fi
+
+            printf_info "Forcing SQLite checkpoint..."
             if command -v sqlite3 >/dev/null 2>&1; then
-                sqlite3 "${src}/crafty.sqlite" "PRAGMA wal_checkpoint(FULL);" || printf_warn "Failed to checkpoint database"
+                CHECKPOINT_RESULT=$(sqlite3 "${src}/crafty.sqlite" "PRAGMA wal_checkpoint(FULL);" 2>&1)
+                printf_info "Checkpoint result: ${CHECKPOINT_RESULT}"
                 sync
+                printf_debug "Sync completed after checkpoint"
             else
                 printf_warn "sqlite3 command not found, skipping checkpoint"
             fi
 
-            # Use cp with --archive to preserve attributes and copy atomically
-            printf_debug "Copying main database file..."
-            if cp --archive "${src}/crafty.sqlite" "${dst}/crafty.sqlite.new"; then
-                mv "${dst}/crafty.sqlite.new" "${dst}/crafty.sqlite"
-                printf_debug "Successfully copied main database"
-            else
-                printf_warn "Failed to copy main database"
-                rm -f "${dst}/crafty.sqlite.new"
-            fi
-        fi
+            # Copy all database files atomically using temporary files
+            printf_info "Starting atomic copy of all database files..."
+            for file in crafty.sqlite crafty.sqlite-wal crafty.sqlite-shm; do
+                if [ -f "${src}/${file}" ]; then
+                    printf_info "Copying ${file}..."
+                    printf_debug "Source ${file} size: $(stat -c '%s' "${src}/${file}") bytes"
 
-        # Then copy WAL and SHM files if they exist
-        for ext in "-wal" "-shm"; do
-            if [ -f "${src}/crafty.sqlite${ext}" ]; then
-                printf_debug "Copying ${ext} file..."
-                if cp --archive "${src}/crafty.sqlite${ext}" "${dst}/crafty.sqlite${ext}.new"; then
-                    mv "${dst}/crafty.sqlite${ext}.new" "${dst}/crafty.sqlite${ext}"
-                    printf_debug "Successfully copied ${ext} file"
+                    if ! cp --preserve=all "${src}/${file}" "${dst}/${file}.new"; then
+                        printf_warn "Failed to copy ${file}"
+                        rm -f "${dst}/${file}.new"
+                        continue
+                    fi
+
+                    # Verify the temporary file
+                    if [ -f "${dst}/${file}.new" ]; then
+                        printf_debug "Temporary file created, size: $(stat -c '%s' "${dst}/${file}.new") bytes"
+                    else
+                        printf_warn "Temporary file creation failed for ${file}"
+                        continue
+                    fi
+
+                    # Atomic move
+                    if mv "${dst}/${file}.new" "${dst}/${file}"; then
+                        printf_debug "Atomic move successful for ${file}"
+                    else
+                        printf_warn "Atomic move failed for ${file}"
+                        continue
+                    fi
+
+                    # Set permissions
+                    chown crafty:root "${dst}/${file}"
+                    chmod 664 "${dst}/${file}"
+                    printf_debug "Set permissions on ${file}: $(stat -c '%a' "${dst}/${file}")"
                 else
-                    printf_warn "Failed to copy ${ext} file"
-                    rm -f "${dst}/crafty.sqlite${ext}.new"
+                    printf_debug "Source file ${file} does not exist, skipping"
                 fi
-            fi
-        done
+            done
 
-        # Copy any other files that might exist
-        printf_debug "Copying any additional database files..."
-        find "${src}" -type f ! -name "crafty.sqlite*" -print0 2>/dev/null | while IFS= read -r -d '' file; do
-            base_name=$(basename "$file")
-            printf_debug "Copying additional file: ${base_name}"
-            if ! cp --archive "$file" "${dst}/${base_name}.new"; then
-                printf_warn "Failed to copy: ${base_name}"
-                rm -f "${dst}/${base_name}.new"
-            else
-                mv "${dst}/${base_name}.new" "${dst}/${base_name}"
-            fi
-        done
+            # Verify the final copy
+            printf_info "=== Final verification of copied files ==="
+            printf_info "Destination directory contents:"
+            ls -lah "${dst}" || printf_warn "Could not list destination directory"
 
-        # Verify the copy
-        printf_debug "Verifying copied files..."
-        printf_debug "Destination directory contents:"
-        ls -la "${dst}" || printf_warn "Could not list destination directory"
+            # Verify file counts
+            SRC_COUNT=$(ls -1 "${src}/crafty.sqlite"* 2>/dev/null | wc -l)
+            DST_COUNT=$(ls -1 "${dst}/crafty.sqlite"* 2>/dev/null | wc -l)
+            printf_info "Source files: ${SRC_COUNT}, Destination files: ${DST_COUNT}"
 
-        # Set proper permissions
-        printf_debug "Setting permissions on database files..."
-        chown -R crafty:root "${dst}"
-        chmod -R 644 "${dst}"/*
-        chmod 755 "${dst}"
-
-        # Force a final sync to ensure all writes are on disk
-        sync
+            # Force a final sync
+            sync
+            printf_info "Final sync completed"
+        else
+            printf_warn "Main database file not found in source directory"
+        fi
     else
         printf_warn "Source directory does not exist: ${src}"
     fi
+
+    printf_info "=== Database copy operation completed ==="
 }
 
 # Function to sync database files on shutdown

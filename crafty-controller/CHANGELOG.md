@@ -13,3 +13,7 @@
 ## 1.0.3
 
 - More database back and sync improvements
+
+## 1.0.4
+
+- Yet more database backup and sync fixes/improvements
