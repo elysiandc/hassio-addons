@@ -19,12 +19,78 @@ printf_debug() {
 }
 
 repair_permissions() {
-    printf_step "📋 (1/3) Ensuring root group ownership..."
-    find . ! -group root -print0 | xargs -0 -r chgrp root
-    printf_step "📋 (2/3) Ensuring group read-write is present on files..."
-    find . ! -perm g+rw -print0 | xargs -0 -r chmod g+rw
-    printf_step "📋 (3/3) Ensuring sticky bit is present on directories..."
-    find . -type d ! -perm g+s -print0 | xargs -0 -r chmod g+s
+    local target_dir="${1:-.}"
+    printf_step "📋 Optimizing permission repairs..."
+
+    # Use parallel for large directories
+    if command -v parallel >/dev/null 2>&1; then
+        printf_debug "Using parallel for permission repairs"
+
+        # Process directories first (handles sticky bit and ownership)
+        find "$target_dir" -type d -print0 | parallel -0 --will-cite -n 100 'chmod g+s {} 2>/dev/null; chgrp root {} 2>/dev/null'
+
+        # Process files (handles group read-write and ownership)
+        find "$target_dir" -type f -print0 | parallel -0 --will-cite -n 100 'chmod g+rw {} 2>/dev/null; chgrp root {} 2>/dev/null'
+    else
+        printf_debug "Parallel not available, using sequential processing"
+
+        # Combine tests to reduce process spawning
+        # For directories: check group ownership and sticky bit in one pass
+        find "$target_dir" -type d \( ! -group root -o ! -perm -g+s \) -exec sh -c '
+            for d; do
+                if [ "$(stat -c %G "$d")" != "root" ]; then
+                    chgrp root "$d"
+                fi
+                if [ ! -g "$d" ] || [ ! -k "$d" ]; then
+                    chmod g+s "$d"
+                fi
+            done
+        ' sh {} +
+
+        # For files: check group ownership and read-write permissions in one pass
+        find "$target_dir" -type f \( ! -group root -o ! -perm -g+rw \) -exec sh -c '
+            for f; do
+                if [ "$(stat -c %G "$f")" != "root" ]; then
+                    chgrp root "$f"
+                fi
+                if [ ! -g "$f" ] || [ ! -w "$f" ]; then
+                    chmod g+rw "$f"
+                fi
+            done
+        ' sh {} +
+    fi
+}
+
+# Function to quickly check if permissions need repair
+needs_permission_repair() {
+    local target_dir="${1:-.}"
+    local sample_size=100
+    local issues=0
+
+    # Quick sample check of files and directories
+    printf_debug "Sampling permissions to determine if repair is needed..."
+
+    # Check a sample of directories
+    issues=$(find "$target_dir" -type d -print0 | head -z -n "$sample_size" | xargs -0 -I{} sh -c '
+        if [ "$(stat -c %G "{}")" != "root" ] || [ ! -g "{}" ] || [ ! -k "{}" ]; then
+            echo 1
+            exit 0
+        fi' 2>/dev/null | wc -l)
+
+    # If directory issues found, repair needed
+    if [ "$issues" -gt 0 ]; then
+        return 0
+    fi
+
+    # Check a sample of files
+    issues=$(find "$target_dir" -type f -print0 | head -z -n "$sample_size" | xargs -0 -I{} sh -c '
+        if [ "$(stat -c %G "{}")" != "root" ] || [ ! -g "{}" ] || [ ! -w "{}" ]; then
+            echo 1
+            exit 0
+        fi' 2>/dev/null | wc -l)
+
+    # Return 0 (true) if issues found, 1 (false) if no issues
+    [ "$issues" -gt 0 ]
 }
 
 # Function to safely copy database files
@@ -365,10 +431,16 @@ else
 fi
 
 # Ensure proper permissions on all directories
-printf_info "Setting proper permissions on Crafty installation..."
+printf_info "Checking permissions on Crafty installation..."
 cd "${CRAFTY_HOME}"
 chown -R crafty:root "${CRAFTY_HOME}"
-repair_permissions
+
+if needs_permission_repair; then
+    printf_info "Permission issues detected, starting repair..."
+    repair_permissions
+else
+    printf_info "Permissions appear correct, skipping repair..."
+fi
 
 # Configure Crafty server ports
 export CRAFTY_WEBSERVER_PORT=8433

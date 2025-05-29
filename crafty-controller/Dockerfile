@@ -2,7 +2,7 @@ ARG BUILD_FROM=registry.gitlab.com/crafty-controller/crafty-4:latest
 FROM ${BUILD_FROM}
 
 # Install jq for JSON parsing
-RUN apt-get update && apt-get install -y jq lsof curl nano && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y jq lsof curl nano sqlite3 && rm -rf /var/lib/apt/lists/*
 
 # Define additional Home Assistant environment variables
 ENV PYTHONUNBUFFERED=1 \
