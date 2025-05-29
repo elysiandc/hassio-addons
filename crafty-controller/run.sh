@@ -49,13 +49,24 @@ safe_db_copy() {
         # Copy files with specific handling for SQLite files
         printf_debug "Copying database files..."
 
-        # First, try to copy the main database file
+        # First, ensure SQLite is in a consistent state by using sqlite3 to force a checkpoint
         if [ -f "${src}/crafty.sqlite" ]; then
+            printf_debug "Forcing SQLite checkpoint..."
+            if command -v sqlite3 >/dev/null 2>&1; then
+                sqlite3 "${src}/crafty.sqlite" "PRAGMA wal_checkpoint(FULL);" || printf_warn "Failed to checkpoint database"
+                sync
+            else
+                printf_warn "sqlite3 command not found, skipping checkpoint"
+            fi
+
+            # Use cp with --archive to preserve attributes and copy atomically
             printf_debug "Copying main database file..."
-            if cp -v "${src}/crafty.sqlite" "${dst}/crafty.sqlite"; then
+            if cp --archive "${src}/crafty.sqlite" "${dst}/crafty.sqlite.new"; then
+                mv "${dst}/crafty.sqlite.new" "${dst}/crafty.sqlite"
                 printf_debug "Successfully copied main database"
             else
                 printf_warn "Failed to copy main database"
+                rm -f "${dst}/crafty.sqlite.new"
             fi
         fi
 
@@ -63,10 +74,12 @@ safe_db_copy() {
         for ext in "-wal" "-shm"; do
             if [ -f "${src}/crafty.sqlite${ext}" ]; then
                 printf_debug "Copying ${ext} file..."
-                if cp -v "${src}/crafty.sqlite${ext}" "${dst}/crafty.sqlite${ext}"; then
+                if cp --archive "${src}/crafty.sqlite${ext}" "${dst}/crafty.sqlite${ext}.new"; then
+                    mv "${dst}/crafty.sqlite${ext}.new" "${dst}/crafty.sqlite${ext}"
                     printf_debug "Successfully copied ${ext} file"
                 else
                     printf_warn "Failed to copy ${ext} file"
+                    rm -f "${dst}/crafty.sqlite${ext}.new"
                 fi
             fi
         done
@@ -76,8 +89,11 @@ safe_db_copy() {
         find "${src}" -type f ! -name "crafty.sqlite*" -print0 2>/dev/null | while IFS= read -r -d '' file; do
             base_name=$(basename "$file")
             printf_debug "Copying additional file: ${base_name}"
-            if ! cp -v "$file" "${dst}/${base_name}"; then
+            if ! cp --archive "$file" "${dst}/${base_name}.new"; then
                 printf_warn "Failed to copy: ${base_name}"
+                rm -f "${dst}/${base_name}.new"
+            else
+                mv "${dst}/${base_name}.new" "${dst}/${base_name}"
             fi
         done
 
@@ -91,6 +107,9 @@ safe_db_copy() {
         chown -R crafty:root "${dst}"
         chmod -R 644 "${dst}"/*
         chmod 755 "${dst}"
+
+        # Force a final sync to ensure all writes are on disk
+        sync
     else
         printf_warn "Source directory does not exist: ${src}"
     fi
@@ -106,11 +125,43 @@ sync_db_files() {
     # Small delay to allow any pending writes to complete
     sleep 2
 
-    # Copy all database files to persistent storage
-    if [ -d "${CRAFTY_HOME}/app/config/db" ]; then
-        printf_debug "Copying database files to persistent storage..."
-        cp -rv "${CRAFTY_HOME}/app/config/db/"* "${DATA_DIR}/config/db/" 2>/dev/null || true
+    # Force SQLite to checkpoint and sync before copying
+    if [ -f "${CRAFTY_HOME}/app/config/db/crafty.sqlite" ] && command -v sqlite3 >/dev/null 2>&1; then
+        printf_debug "Forcing final SQLite checkpoint before sync..."
+        sqlite3 "${CRAFTY_HOME}/app/config/db/crafty.sqlite" "PRAGMA wal_checkpoint(FULL);" || printf_warn "Failed to checkpoint database during sync"
+        sync
     fi
+
+    # Use safe_db_copy for the final sync
+    safe_db_copy "${CRAFTY_HOME}/app/config/db" "${DATA_DIR}/config/db" " during shutdown"
+}
+
+# Function to periodically sync database files
+periodic_db_sync() {
+    while true; do
+        sleep 300  # Sync every 5 minutes
+        printf_debug "Performing periodic database sync..."
+
+        # Only sync if the database exists and has been modified
+        if [ -f "${CRAFTY_HOME}/app/config/db/crafty.sqlite" ]; then
+            CURRENT_DB_SIZE=$(stat -c %s "${CRAFTY_HOME}/app/config/db/crafty.sqlite" 2>/dev/null || echo "0")
+            CURRENT_WAL_SIZE=$(stat -c %s "${CRAFTY_HOME}/app/config/db/crafty.sqlite-wal" 2>/dev/null || echo "0")
+
+            if [ -f "/tmp/last_db_size" ]; then
+                LAST_DB_SIZE=$(cat "/tmp/last_db_size")
+                LAST_WAL_SIZE=$(cat "/tmp/last_wal_size")
+
+                if [ "$CURRENT_DB_SIZE" != "$LAST_DB_SIZE" ] || [ "$CURRENT_WAL_SIZE" != "$LAST_WAL_SIZE" ]; then
+                    printf_debug "Database changes detected, syncing to persistent storage..."
+                    safe_db_copy "${CRAFTY_HOME}/app/config/db" "${DATA_DIR}/config/db" " during periodic sync"
+                fi
+            fi
+
+            # Store current sizes for next comparison
+            echo "$CURRENT_DB_SIZE" > "/tmp/last_db_size"
+            echo "$CURRENT_WAL_SIZE" > "/tmp/last_wal_size"
+        fi
+    done
 }
 
 # Function to handle credentials
@@ -140,7 +191,7 @@ EOL
 }
 
 # Set up trap to handle shutdown
-trap sync_db_files EXIT
+trap 'sync_db_files; kill $PERIODIC_SYNC_PID 2>/dev/null' EXIT
 
 # Initialize script
 printf_info "=== Starting Crafty Controller Addon $(date '+%Y-%m-%d %H:%M:%S') ==="
@@ -343,6 +394,10 @@ export CRAFTY_WEBSERVER_HOST="0.0.0.0"
 # ls -la ${DATA_DIR}/backups
 # printf_debug "Debug: Logs folder contents: ${DATA_DIR}/logs"
 # ls -la ${DATA_DIR}/logs
+
+# Start periodic database sync in the background
+periodic_db_sync &
+PERIODIC_SYNC_PID=$!
 
 # Launch Crafty
 printf_info "🚀 Launching Crafty Controller with log level: ${LOG_LEVEL} (Python: ${PYTHON_LOG_LEVEL})"

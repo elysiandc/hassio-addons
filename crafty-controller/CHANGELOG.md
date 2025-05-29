@@ -9,3 +9,7 @@
 ## 1.0.2
 
 - Database backup and restore optimisation
+
+## 1.0.3
+
+- More database back and sync improvements
